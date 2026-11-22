@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signed() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function pathFor(id) { return /databases/$(database)/documents/lists/$(id); }
+    function inviteFor(code) { return /databases/$(database)/documents/invites/$(code); }
+    function member(data) { return signed() && me() in data.memberIds; }
+    function owner(data) { return signed() && data.owner == me(); }
+    function short(s,n) { return s is string && s.size() <= n; }
+    function name(s) { return short(s,120) && s.size() > 0; }
+    match /lists/{id} {
+      allow list: if member(resource.data);
+      allow get: if (signed() && id == 'default-' + me()) || member(resource.data);
+      allow create: if signed() && (!id.matches('default-.*') || id == 'default-' + me())
+        && request.resource.data.keys().hasOnly(['name','owner','memberIds','names','categories','manual','hideEmpty','archived','invite'])
+        && owner(request.resource.data) && request.resource.data.memberIds == [me()]
+        && request.resource.data.names.keys().hasOnly([me()]) && name(request.resource.data.names[me()])
+        && request.resource.data.invite == '' && request.resource.data.archived == false
+        && name(request.resource.data.name) && validDisplay(request.resource.data);
+      function validDisplay(data) {
+        return data.categories is list && data.categories.size() <= 50 && data.manual is bool && data.hideEmpty is bool;
+      }
+      function changes() { return request.resource.data.diff(resource.data).affectedKeys(); }
+      function onlyAddSelf(after, before) {
+        return after.memberIds == before.memberIds.concat([me()]) && !(me() in before.memberIds)
+          && after.names.diff(before.names).affectedKeys().hasOnly([me()]) && name(after.names[me()]);
+      }
+      function joins(after,before) {
+        return signed() && !before.archived && changes().hasOnly(['memberIds','names','joinCode'])
+          && after.joinCode is string && after.joinCode.matches('[23456789A-HJ-NP-Z]{12}') && after.joinCode == before.invite
+          && exists(inviteFor(after.joinCode)) && get(inviteFor(after.joinCode)).data.listId == id
+          && onlyAddSelf(after,before);
+      }
+      function leaves(after,before) {
+        return member(before) && !owner(before) && changes().hasOnly(['memberIds'])
+          && after.memberIds == before.memberIds.removeAll([me()]);
+      }
+      function renamesSelf(after,before) {
+        return member(before) && !before.archived && changes().hasOnly(['names'])
+          && after.names.diff(before.names).affectedKeys().hasOnly([me()]) && name(after.names[me()]);
+      }
+      function ownerEdit(after,before) {
+        return owner(before) && !before.archived
+          && changes().hasOnly(['name','memberIds','categories','manual','hideEmpty','archived','invite'])
+          && after.memberIds is list && me() in after.memberIds && before.memberIds.hasAll(after.memberIds)
+          && name(after.name) && validDisplay(after) && after.archived is bool && short(after.invite,12)
+          && (!changes().hasAny(['invite']) || (
+              (before.invite == '' || !existsAfter(inviteFor(before.invite))) &&
+              (after.invite == '' || getAfter(inviteFor(after.invite)).data.listId == id)
+          ));
+      }
+      allow update: if ownerEdit(request.resource.data,resource.data) || joins(request.resource.data,resource.data)
+        || leaves(request.resource.data,resource.data) || renamesSelf(request.resource.data,resource.data);
+      function active() {
+        return signed() && !get(pathFor(id)).data.archived && member(get(pathFor(id)).data);
+      }
+      match /items/{item} {
+        function valid(data) {
+          return data.keys().hasOnly(['name','qty','category','done','rank','author'])
+            && name(data.name) && short(data.qty,80) && short(data.category,80)
+            && data.done is bool && data.rank is number;
+        }
+        allow read, delete: if active();
+        allow create: if active() && valid(request.resource.data) && request.resource.data.author == me();
+        allow update: if active() && valid(request.resource.data) && request.resource.data.author == resource.data.author;
+      }
+      match /history/{item} {
+        allow read: if active();
+        allow create, update: if active()
+          && request.resource.data.keys().hasOnly(['name','qty','category','count'])
+          && name(request.resource.data.name) && short(request.resource.data.qty,80)
+          && short(request.resource.data.category,80)
+          && (!('count' in request.resource.data) || request.resource.data.count is int);
+      }
+    }
+    match /invites/{code} {
+      allow get: if signed();
+      allow create: if signed() && code.matches('[23456789A-HJ-NP-Z]{12}') && request.resource.data.keys().hasOnly(['listId'])
+        && owner(get(pathFor(request.resource.data.listId)).data)
+        && getAfter(pathFor(request.resource.data.listId)).data.invite == code;
+      allow delete: if signed() && owner(get(pathFor(resource.data.listId)).data)
+        && getAfter(pathFor(resource.data.listId)).data.invite != code;
+    }
+  }
+}
