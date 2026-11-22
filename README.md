@@ -1,4 +1,4 @@
-# NaNákup 0.9.0
+# NaNákup 0.9.1
 
 České sdílené nákupní seznamy. React, TypeScript, Vite a Firebase.
 

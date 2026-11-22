@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
 import { onSnapshot, type DocumentData, type Query } from 'firebase/firestore'
@@ -6,7 +6,8 @@ import { auth, configured, login, listsQuery, itemsRef, historyRef, initDefault,
 import { guessCategory, normalize } from './catalog'
 import './style.css'
 
-const version = '0.9.0'
+const version = '0.9.1'
+const NoticeContext = createContext('')
 const inviteFromUrl = () => new URLSearchParams(location.hash.slice(1)).get('pozvanka') || ''
 const message = (error: unknown) => {
   const code = (error as {code?: string})?.code
@@ -38,9 +39,11 @@ function Brand() {
 
 function Dialog({title,close,children}:{title:string;close:()=>void;children:ReactNode}) {
   const ref = useRef<HTMLDialogElement>(null)
+  const notice = useContext(NoticeContext)
   useEffect(() => { ref.current?.showModal() },[])
   return <dialog ref={ref} onCancel={event=>{event.preventDefault();close()}}>
     <div className="dialog-head"><h2>{title}</h2><button className="icon" aria-label="Zavřít" onClick={close}>×</button></div>
+    {notice && <p className="dialog-notice" role="status">{notice}</p>}
     {children}
   </dialog>
 }
@@ -62,8 +65,8 @@ function App() {
     return () => {window.removeEventListener('online',update);window.removeEventListener('offline',update);window.removeEventListener('focus',update)}
   },[])
   useEffect(() => {document.documentElement.dataset.theme=theme;localStorage.setItem('nanakup-theme',theme)},[theme])
-  return <>
-    <header><div className="top"><Brand/><button className="icon settings" onClick={()=>setSettings(true)} aria-label="Nastavení">⚙</button></div></header>
+  return <NoticeContext.Provider value={notice}>
+    <header><div className="top"><Brand/><button className="icon settings" onClick={()=>setSettings(true)} aria-label="Nastavení">⚙︎</button></div></header>
     {configured && user ? <Workspace key={user.uid} user={user} online={online} code={code} setCode={setCode} fail={fail} notify={setNotice} settings={settings} setSettings={setSettings} theme={theme} setTheme={setTheme}/> :
       <main className="welcome"><div className="welcome-mark" aria-hidden="true">✓</div>
         <h1>Co dnes nakoupíme?</h1><p>Jeden seznam pro celou domácnost. Přidej, co chybí, a v obchodě jen odškrtávej.</p>
@@ -72,7 +75,7 @@ function App() {
       </main>}
     {!user && settings && <Dialog title="Nastavení" close={()=>setSettings(false)}><Theme theme={theme} change={setTheme}/><small>NaNákup {version}</small></Dialog>}
     {notice && <aside className="notice" role="status">{notice}<button className="icon" aria-label="Skrýt zprávu" onClick={()=>setNotice('')}>×</button></aside>}
-  </>
+  </NoticeContext.Provider>
 }
 
 function Theme({theme,change}:{theme:string;change:(theme:string)=>void}) {
@@ -168,7 +171,8 @@ function ShoppingList({list,user,online,fail,notify}:ShoppingProps) {
     if (merge && merged.length>80) {notify('Sloučené množství je příliš dlouhé. Uprav množství položky.');return}
     action(saveItem(list.id,merge ? {...item,qty:merged,category:merge.category}:item,undefined,merge?.id))
     setDuplicate(null);setDraft('');setQty('');setSuggest(false)
-    requestAnimationFrame(()=>nameInput.current?.focus())
+    if (duplicate) requestAnimationFrame(()=>nameInput.current?.focus())
+    else nameInput.current?.focus()
     navigator.vibrate?.(12)
   }
   function row(item:Item,index?:number) {
@@ -188,7 +192,7 @@ function ShoppingList({list,user,online,fail,notify}:ShoppingProps) {
   }
   return <>
     <section className="list-heading">
-      <div><div className="sync" aria-live="polite"><span/>{!online?'Offline':items.pending?'Synchronizuji…':items.cached?'Načítám změny…':'Synchronizováno'}</div><h1>{list.name}</h1><p>{open.length===0?'Vše odškrtnuto':`${open.length} ${open.length===1?'položka':open.length<5?'položky':'položek'} k nákupu`}</p></div>
+      <div><div className="sync" data-status={!online ? "offline" : items.pending || items.cached ? "pending" : "ready"} aria-live="polite"><span/>{!online?'Offline':items.pending?'Synchronizuji…':items.cached?'Načítám změny…':'Synchronizováno'}</div><h1>{list.name}</h1><p>{open.length===0?'Vše odškrtnuto':`${open.length} ${open.length===1?'položka':open.length<5?'položky':'položek'} k nákupu`}</p></div>
       <div className="heading-actions"><button className="secondary" onClick={()=>setPanel('share')}>Sdílet</button><button className="icon" aria-label="Možnosti seznamu" onClick={()=>{setListName(list.name);setPanel('options')}}>···</button></div>
     </section>
     <div className="entry">

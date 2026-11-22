@@ -20,10 +20,10 @@ header{background:#29234c;color:#fff8ec;padding-top:env(safe-area-inset-top)}
 .settings{color:#fff8ec}
 .icon{width:44px;min-width:44px;padding:0;font-size:21px}
 .workspace,.welcome{max-width:760px;margin:auto;padding:0 max(16px,env(safe-area-inset-right)) 0 max(16px,env(safe-area-inset-left))}
-.welcome{padding-top:clamp(54px,12vh,128px)}
+.welcome{padding-top:clamp(42px,8vh,90px)}
 .welcome-mark{width:76px;height:76px;border-radius:22px;font-size:44px;margin:0 0 20px 5px}
 h1,h2,h3,p{margin:0}
-h1{font-size:clamp(29px,6vw,46px);font-weight:820;line-height:1.05;letter-spacing:-.06em;overflow-wrap:anywhere}
+h1{font-size:clamp(27px,5.9vw,40px);font-weight:820;line-height:1.05;letter-spacing:-.06em;overflow-wrap:anywhere}
 .welcome p{max-width:36ch;color:var(--muted);line-height:1.55;margin:16px 0 22px}
 .primary{background:#29234c;color:#fff8ec}
 :root[data-theme=dark] .primary{background:var(--accent);color:#29234c}
@@ -81,3 +81,7 @@ dialog small{display:block;color:var(--muted);margin-top:14px}
 @keyframes arrive{from{opacity:.45;transform:translateY(-3px)}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 @media(max-width:365px){.workspace,.welcome{padding-left:max(11px,env(safe-area-inset-left));padding-right:max(11px,env(safe-area-inset-right))}.heading-actions .secondary{padding-inline:8px}.add{grid-template-columns:minmax(0,1fr) minmax(81px,29%) 44px}}
+
+.sync[data-status=ready] span{background:#399064}
+.sync[data-status=offline] span{background:#a96357}
+.dialog-notice{margin:8px 0 12px;padding:9px 12px;border-radius:9px;background:var(--lavender);font-size:14px}

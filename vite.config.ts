@@ -5,6 +5,7 @@ export default defineConfig({
   base: '/nanakup/',
   plugins: [VitePWA({
     registerType: 'autoUpdate',
+    includeAssets: ['icon-192.png','icon-512.png'],
     workbox: { cleanupOutdatedCaches: true, navigateFallback: '/nanakup/index.html', navigateFallbackAllowlist: [/^\/nanakup\/(?:\?|$)/] },
     manifest: {
       name: 'NaNákup', short_name: 'NaNákup', lang: 'cs', id: '/nanakup/',
