@@ -4,9 +4,10 @@ import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
 import { onSnapshot, type DocumentData, type Query } from 'firebase/firestore'
 import { auth, configured, login, listsQuery, itemsRef, historyRef, initDefault, patchList, patchItem, createList, saveItem, clearItems, removeItem, moveItem, rotateInvite, joinList, removeMember, rememberName, userName, type List, type Item, type History } from './db'
 import { guessCategory, normalize } from './catalog'
+import { newItemsMessage, useNewItems } from './new-items'
+import { version } from '../package.json'
 import './style.css'
 
-const version = '0.9.1'
 const NoticeContext = createContext('')
 const inviteFromUrl = () => new URLSearchParams(location.hash.slice(1)).get('pozvanka') || ''
 const message = (error: unknown) => {
@@ -139,6 +140,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
 type ShoppingProps = {list:List;user:User;online:boolean;fail:(error:unknown)=>void;notify:(text:string)=>void}
 function ShoppingList({list,user,online,fail,notify}:ShoppingProps) {
   const items = useDocuments<Item>(()=>itemsRef(list.id),list.id,fail)
+  const activity = useNewItems(list.id, user.uid, items.rows, items.key === list.id && !items.cached && !items.pending)
   const historyItems = useDocuments<History>(()=>historyRef(list.id),list.id,fail).rows
   const [draft,setDraft] = useState('')
   const [qty,setQty] = useState('')
@@ -176,9 +178,10 @@ function ShoppingList({list,user,online,fail,notify}:ShoppingProps) {
     navigator.vibrate?.(12)
   }
   function row(item:Item,index?:number) {
+    const isNew = !item.done && activity.badges.has(item.id)
     return <li className={item.done?'done item':'item'} key={item.id}>
-      <button className="check-row" role="checkbox" aria-checked={item.done} aria-label={item.name} onClick={()=>{action(patchItem(list.id,item.id,{done:!item.done}));navigator.vibrate?.(12)}}>
-        <span className="checkbox" aria-hidden="true">{item.done?'✓':''}</span><span className="item-name">{item.name}</span>{item.qty&&<span className="qty">{item.qty}</span>}
+      <button className="check-row" role="checkbox" aria-checked={item.done} aria-label={isNew ? item.name + ' · Nové' : item.name} onClick={()=>{action(patchItem(list.id,item.id,{done:!item.done}));navigator.vibrate?.(12)}}>
+        <span className="checkbox" aria-hidden="true">{item.done?'✓':''}</span><span className="item-name">{item.name}{isNew && <span className="new-badge">Nové</span>}</span>{item.qty&&<span className="qty">{item.qty}</span>}
       </button>
       {index!==undefined && <button className="icon move" disabled={index===0} aria-label={`Posunout ${item.name} nahoru`} onClick={()=>action(moveItem(list.id,item,open[index-1]))}>↑</button>}
       <button className="icon item-options" aria-label={`Upravit ${item.name}`} onClick={()=>setEdit(item)}>···</button>
@@ -203,6 +206,11 @@ function ShoppingList({list,user,online,fail,notify}:ShoppingProps) {
       </form>
       {suggestions.length>0 && <div className="suggestions" aria-label="Návrhy z historie">{suggestions.map(entry=><button key={entry.id} onPointerDown={event=>event.preventDefault()} onClick={()=>{setDraft(entry.name);setQty(entry.qty);setSuggest(false);qtyInput.current?.focus()}}>{entry.name}<span>{entry.qty}</span></button>)}</div>}
     </div>
+    <div className="activity-status" role="status" aria-atomic="true">{activity.count > 0 && newItemsMessage(activity.count)}</div>
+    {activity.count > 0 && <div className="activity-banner">
+      <span aria-hidden="true">{newItemsMessage(activity.count)}</span>
+      <button className="icon" aria-label="Skrýt upozornění na nové položky" onClick={activity.dismiss}>×</button>
+    </div>}
     {open.length===0 && <div className="empty"><span aria-hidden="true">✓</span><p>{done.length ? 'Nákup je odškrtnutý.' : 'Přidej první položku.'}</p></div>}
     {list.manual ? <ul>{open.map(row)}</ul> : list.categories.map(category=>{
       const entries = open.filter(item=>item.category===category.id || (category.id==='other'&&!list.categories.some(entry=>entry.id===item.category)))
