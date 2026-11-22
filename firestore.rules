@@ -65,6 +65,11 @@ service cloud.firestore {
         allow create: if active() && valid(request.resource.data) && request.resource.data.author == me();
         allow update: if active() && valid(request.resource.data) && request.resource.data.author == resource.data.author;
       }
+      match /pushActors/{uid} {
+        allow create, update: if active() && uid == me()
+          && request.resource.data.keys().hasOnly(['pendingAt'])
+          && request.resource.data.pendingAt == request.time;
+      }
       match /history/{item} {
         allow read: if active();
         allow create, update: if active()
@@ -73,6 +78,18 @@ service cloud.firestore {
           && short(request.resource.data.category,80)
           && (!('count' in request.resource.data) || request.resource.data.count is int);
       }
+    }
+    match /pushDevices/{id} {
+      function validDevice(data) {
+        return data.keys().hasOnly(['uid','token','muted'])
+          && data.uid == me() && name(data.uid)
+          && short(data.token,4096) && data.token.size() > 0
+          && data.muted is list && data.muted.size() <= 100;
+      }
+      allow get: if signed() && resource.data.uid == me();
+      allow create: if signed() && validDevice(request.resource.data);
+      allow update: if signed() && resource.data.uid == me() && validDevice(request.resource.data);
+      allow delete: if signed() && resource.data.uid == me();
     }
     match /invites/{code} {
       allow get: if signed();

@@ -1,11 +1,12 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider, signInWithPopup, updateProfile, type User } from 'firebase/auth'
-import { collection, doc, getDocFromServer, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, setDoc, updateDoc, deleteDoc, query, where, writeBatch, increment, arrayUnion, arrayRemove, FieldPath, runTransaction } from 'firebase/firestore'
+import { collection, doc, getDocFromServer, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, setDoc, updateDoc, query, where, writeBatch, increment, serverTimestamp, arrayUnion, arrayRemove, FieldPath, runTransaction } from 'firebase/firestore'
 import { firebaseConfig } from './firebase-config'
+import { pushConfigured } from './push-config'
 import { categories, normalize, type Category } from './catalog'
 
 export const configured = firebaseConfig.apiKey !== 'unconfigured'
-const app = initializeApp(firebaseConfig)
+export const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
 export const db = initializeFirestore(app, {localCache: persistentLocalCache({tabManager: persistentMultipleTabManager()})})
 export const login = () => signInWithPopup(auth, new GoogleAuthProvider())
@@ -31,9 +32,21 @@ export function createList(name: string, user: User) {
   const ref = doc(collection(db,'lists'))
   return setDoc(ref,listData(name,user)).then(() => ref.id)
 }
-export const patchList = (id: string, data: Partial<List>) => updateDoc(listRef(id),data)
-export const patchItem = (list: string, item: string, data: Partial<Item>) => updateDoc(itemRef(list,item),data)
-export const removeItem = (list: string, item: string) => deleteDoc(itemRef(list,item))
+function commitListChange(id: string, batch: ReturnType<typeof writeBatch>) {
+  const uid = auth.currentUser?.uid
+  if (uid && pushConfigured) batch.set(doc(listRef(id),'pushActors',uid),{pendingAt:serverTimestamp()})
+  return batch.commit()
+}
+export function patchList(id: string, data: Partial<List>) {
+  const batch = writeBatch(db).update(listRef(id),data)
+  return commitListChange(id,batch)
+}
+export function patchItem(list: string, item: string, data: Partial<Item>) {
+  return commitListChange(list,writeBatch(db).update(itemRef(list,item),data))
+}
+export function removeItem(list: string, item: string) {
+  return commitListChange(list,writeBatch(db).delete(itemRef(list,item)))
+}
 export function rememberName(user: User, name: string, lists: List[]) {
   return Promise.all([updateProfile(user,{displayName:name}), ...lists.map(list => updateDoc(listRef(list.id),new FieldPath('names',user.uid),name))])
 }
@@ -45,20 +58,20 @@ export function saveItem(list: string, item: Omit<Item,'id'>, existing?: string,
   const historyId = encodeURIComponent(normalize(item.name))
   const history = {name:item.name,qty:item.qty,category:item.category}
   batch.set(doc(historyRef(list),historyId),existing ? history : {...history,count:increment(1)},{merge:true})
-  return batch.commit()
+  return commitListChange(list,batch)
 }
 export async function clearItems(list: string, items: Item[]) {
   for (let i=0;i<items.length;i+=400) {
     const batch = writeBatch(db)
     items.slice(i,i+400).forEach(item => batch.delete(itemRef(list,item.id)))
-    await batch.commit()
+    await commitListChange(list,batch)
   }
 }
 export function moveItem(list: string, first: Item, second: Item) {
   const batch = writeBatch(db)
   batch.update(itemRef(list,first.id),{rank:second.rank})
   batch.update(itemRef(list,second.id),{rank:first.rank})
-  return batch.commit()
+  return commitListChange(list,batch)
 }
 export async function rotateInvite(list: List, revoke = false) {
   const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'

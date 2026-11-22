@@ -6,6 +6,8 @@ import { auth, configured, login, listsQuery, itemsRef, historyRef, initDefault,
 import { guessCategory, normalize } from './catalog'
 import { newItemsMessage, useNewItems } from './new-items'
 import { version } from '../package.json'
+import { pushConfigured } from './push-config'
+import { storedDevice, registerPush, unregisterPush, changePushPreference } from './push-device'
 import './style.css'
 
 const NoticeContext = createContext('')
@@ -87,11 +89,32 @@ type WorkspaceProps = {user:User;online:boolean;code:string;setCode:(code:string
 function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,theme,setTheme}:WorkspaceProps) {
   const {rows,key} = useDocuments<List>(()=>listsQuery(user.uid),user.uid,fail)
   const lists = rows.filter(list=>!list.archived).sort((a,b)=>Number(b.id.startsWith('default-'))-Number(a.id.startsWith('default-')) || a.name.localeCompare(b.name,'cs'))
-  const [selected,setSelected] = useState('')
+  const [selected,setSelected] = useState(() => new URLSearchParams(location.search).get('seznam') || '')
   const [menu,setMenu] = useState<'lists'|'join'|null>(code?'join':null)
   const [busy,setBusy] = useState(false)
   const [newList,setNewList] = useState('')
   const [name,setName] = useState(userName(user))
+  const [device,setDevice] = useState(() => pushConfigured ? storedDevice(user.uid) : null)
+  const [pushBusy,setPushBusy] = useState(false)
+  useEffect(() => {
+    if (online && device && window.Notification?.permission === 'granted') void registerPush(user.uid,device,false).catch(()=>{})
+  }, [user.uid,online])
+  async function updatePush(action: () => Promise<void>) {
+    setPushBusy(true)
+    try { await action() }
+    catch (error) { fail(error) }
+    finally { setPushBusy(false) }
+  }
+  async function togglePush() {
+    if (device) {
+      await unregisterPush(user.uid,device)
+      setDevice(null)
+    } else {
+      const next = {id:crypto.randomUUID(),muted:[]}
+      await registerPush(user.uid,next,true)
+      setDevice(next)
+    }
+  }
   const list = lists.find(entry=>entry.id===selected) ?? lists[0]
   useEffect(() => {if(online) void initDefault(user).catch(fail)},[user.uid,online])
   async function join(event:FormEvent) {
@@ -131,7 +154,24 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
         <label>Zobrazované jméno<input value={name} onChange={event=>setName(event.target.value)} maxLength={120} required/></label>
         <button className="secondary" disabled={!name.trim() || !online}>Uložit jméno</button>
       </form>
-      <button className="secondary" onClick={()=>{void signOut(auth).catch(fail);setSettings(false)}}>Odhlásit se</button>
+      {pushConfigured && <section className="push-settings">
+        <h3>Oznámení na tomto zařízení</h3>
+        <button className="secondary" disabled={pushBusy || !online} onClick={()=>void updatePush(togglePush)}>{device ? 'Vypnout oznámení' : 'Zapnout oznámení'}</button>
+        {device && lists.map(list=><label key={list.id} className="switch">
+          <input type="checkbox" checked={!device.muted.includes(list.id)} disabled={pushBusy || !online} onChange={event=>{
+            const muted = !event.target.checked
+            void updatePush(async () => setDevice(await changePushPreference(user.uid,device,list.id,muted)))
+          }}/>{list.name}
+        </label>)}
+      </section>}
+      <button className="secondary" disabled={pushBusy || Boolean(device && !online)} onClick={()=>void updatePush(async()=>{
+        if (device) {
+          await unregisterPush(user.uid,device)
+          setDevice(null)
+        }
+        await signOut(auth)
+        setSettings(false)
+      })}>Odhlásit se</button>
       <small>NaNákup {version}</small>
     </Dialog>}
   </main>
