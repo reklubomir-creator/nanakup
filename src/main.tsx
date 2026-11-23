@@ -84,7 +84,7 @@ function Theme({theme,change}:{theme:string;change:(theme:string)=>void}) {
   return <label>Vzhled<select value={theme} onChange={event=>change(event.target.value)}><option value="system">Podle zařízení</option><option value="light">Světlý</option><option value="dark">Tmavý</option></select></label>
 }
 
-function OverviewRow({list,open,current,revealed,reveal,remove}:{list:List;open:()=>void;current:boolean;revealed:boolean;reveal:(value:boolean)=>void;remove?:()=>void}) {
+function OverviewRow({list,open,revealed,reveal,remove}:{list:List;open:()=>void;revealed:boolean;reveal:(value:boolean)=>void;remove?:()=>void}) {
   const start = useRef<{x:number;y:number;id:number} | null>(null)
   const swiped = useRef(false)
   const actionButton = useRef<HTMLButtonElement>(null)
@@ -96,7 +96,7 @@ function OverviewRow({list,open,current,revealed,reveal,remove}:{list:List;open:
 
   return <li className="overview-swipe" data-revealed={revealed}>
     {remove && <button ref={actionButton} className="overview-delete" tabIndex={revealed ? 0 : -1} aria-hidden={!revealed} aria-label={`Smazat seznam ${list.name}`} onClick={remove}>Smazat</button>}
-    <button className="overview-row" data-current={current} aria-current={current || undefined} aria-keyshortcuts={remove ? 'ArrowLeft ArrowRight' : undefined}
+    <button className="overview-row" aria-keyshortcuts={remove ? 'ArrowLeft ArrowRight' : undefined}
       onPointerDown={event=>{
         swiped.current = false
         start.current = remove && event.isPrimary && event.pointerType !== 'mouse' ? {x:event.clientX,y:event.clientY,id:event.pointerId} : null
@@ -125,7 +125,7 @@ function OverviewRow({list,open,current,revealed,reveal,remove}:{list:List;open:
         if (revealed) reveal(false)
         else open()
       }}>
-      <span className="overview-name">{list.name}{current && <span className="overview-current">Aktuální</span>}</span>
+      <span className="overview-name">{list.name}</span>
       <span className="overview-count" aria-label={remaining===undefined?'Počet položek není dostupný':`${remaining} neodškrtnutých položek`}>{remaining ?? '–'}</span>
     </button>
   </li>
@@ -136,8 +136,6 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   const {rows,key} = useDocuments<List>(()=>listsQuery(user.uid),user.uid,fail)
   const lists = rows.filter(list=>!list.archived).sort((a,b)=>Number(b.id.startsWith('default-'))-Number(a.id.startsWith('default-')) || a.name.localeCompare(b.name,'cs'))
   const [selected,setSelected] = useState(selectedFromUrl)
-  const lastListKey = 'nanakup-last-list:' + user.uid
-  const [lastList,setLastList] = useState(() => localStorage.getItem(lastListKey) || '')
   const [menu,setMenu] = useState<'join'|null>(code?'join':null)
   const [busy,setBusy] = useState(false)
   const [newList,setNewList] = useState('')
@@ -145,12 +143,6 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   const [creating,setCreating] = useState(false)
   const [name,setName] = useState(userName(user))
   const list = lists.find(entry=>entry.id===selected)
-  const currentId = (lists.find(entry=>entry.id===lastList) ?? lists[0])?.id
-  useEffect(() => {
-    if (!list?.id) return
-    setLastList(list.id)
-    localStorage.setItem(lastListKey,list.id)
-  },[list?.id,lastListKey])
   useEffect(() => {
     const restore = () => setSelected(selectedFromUrl())
     window.addEventListener('popstate',restore)
@@ -202,18 +194,20 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
       <div className="overview-heading"><h1>Nákupní seznamy</h1></div>
       {lists.length ? <ul className="overview-lists">
         {lists.map(entry=><OverviewRow key={entry.id} list={entry} open={()=>openList(entry.id)}
-          current={currentId===entry.id} revealed={revealedList===entry.id} reveal={value=>setRevealedList(value ? entry.id : '')}
+          revealed={revealedList===entry.id} reveal={value=>setRevealedList(value ? entry.id : '')}
           remove={entry.owner===user.uid && entry.id!=='default-'+user.uid ? ()=>{
             void patchList(entry.id,{archived:true}).catch(fail)
             setRevealedList('')
           } : undefined}/>)}
       </ul> : <p className="empty">{key ? 'Zatím tu nejsou žádné seznamy.' : 'Načítám seznamy…'}</p>}
-      <form className="add overview-add" onSubmit={addList}>
-        <input value={newList} onChange={event=>setNewList(event.target.value)} maxLength={120}
-          aria-label="Název nového seznamu" placeholder="Název nového seznamu" enterKeyHint="done" disabled={creating}/>
-        <button className="add-button" aria-label="Vytvořit seznam" disabled={!online || !newList.trim() || creating}>✓</button>
-      </form>
-      <button className="secondary" disabled={!online} onClick={()=>setMenu('join')}>Zadat kód pozvánky</button>
+      <div className="overview-actions">
+        <form className="add overview-add" onSubmit={addList}>
+          <input value={newList} onChange={event=>setNewList(event.target.value)} maxLength={120}
+            aria-label="Název nového seznamu" placeholder="Název nového seznamu" enterKeyHint="done" disabled={creating}/>
+          <button className="add-button" aria-label="Vytvořit seznam" disabled={!online || !newList.trim() || creating}>✓</button>
+        </form>
+        <button className="secondary" disabled={!online} onClick={()=>setMenu('join')}>Zadat kód pozvánky</button>
+      </div>
     </section>}
     {menu==='join' && <Dialog title="Připojit se k seznamu" close={()=>setMenu(null)}>
       <form onSubmit={join}><label>Kód pozvánky<input value={code} onChange={event=>setCode(event.target.value.toUpperCase())} autoCapitalize="characters" autoComplete="off" maxLength={24} required/></label>
