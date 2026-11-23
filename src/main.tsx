@@ -6,6 +6,7 @@ import { auth, configured, login, listsQuery, itemsRef, historyRef, initDefault,
 import { guessCategory, normalize } from './catalog'
 import { newItemsMessage, useNewItems } from './new-items'
 import { version } from '../package.json'
+import { retailers, loadRetailers, saveRetailers, dealProvider, type RetailerId } from './deals'
 import './style.css'
 
 const NoticeContext = createContext('')
@@ -163,6 +164,12 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   const [revealedList,setRevealedList] = useState('')
   const [creating,setCreating] = useState(false)
   const [name,setName] = useState(userName(user))
+  const [chosenRetailers,setChosenRetailers] = useState<RetailerId[]>(()=>loadRetailers(user.uid))
+  function toggleRetailer(id:RetailerId) {
+    const next=chosenRetailers.includes(id)?chosenRetailers.filter(value=>value!==id):[...chosenRetailers,id]
+    setChosenRetailers(next)
+    try {saveRetailers(user.uid,next)} catch {notify('Výběr obchodů se nepodařilo uložit do zařízení.')}
+  }
   const list = lists.find(entry=>entry.id===selected)
   useEffect(() => {
     const restore = () => setSelected(selectedFromUrl())
@@ -211,7 +218,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
           {lists.map(entry=><option key={entry.id} value={entry.id}>{entry.name}</option>)}
         </select>
       </nav>
-      <ShoppingList key={list.id} list={list} sharedLists={lists} user={user} online={online} fail={fail} notify={notify}/>
+      <ShoppingList key={list.id} list={list} sharedLists={lists} user={user} online={online} fail={fail} notify={notify} chosenRetailers={chosenRetailers}/>
     </> : <section className="overview">
       <div className="overview-heading">
         <h1>Nákupní seznamy</h1>
@@ -248,6 +255,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
     </Dialog>}
     {settings && <Dialog title="Nastavení" close={()=>setSettings(false)}>
       <Theme theme={theme} change={setTheme}/>
+      <section className="retailer-settings"><h3>Moje obchody</h3><p>Vyber řetězce, které chceš zahrnout do porovnání akcí.</p><div className="retailer-options">{retailers.map(retailer=><label className="retailer-option" key={retailer.id}><input type="checkbox" checked={chosenRetailers.includes(retailer.id)} onChange={()=>toggleRetailer(retailer.id)}/>{retailer.name}</label>)}</div><small>Výběr je zatím uložen pouze v tomto prohlížeči. Aktuální akční ceny vyžadují ověřený datový zdroj.</small></section>
       <form onSubmit={event=>{event.preventDefault();void rememberName(user,name.trim(),lists).then(()=>notify('Jméno uloženo.')).catch(fail)}}>
         <label>Zobrazované jméno<input value={name} onChange={event=>setName(event.target.value)} maxLength={120} required/></label>
         <button className="secondary" disabled={!name.trim() || !online}>Uložit jméno</button>
@@ -258,8 +266,8 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   </main>
 }
 
-type ShoppingProps = {list:List;sharedLists:List[];user:User;online:boolean;fail:(error:unknown)=>void;notify:(text:string)=>void}
-function ShoppingList({list,sharedLists,user,online,fail,notify}:ShoppingProps) {
+type ShoppingProps = {list:List;sharedLists:List[];user:User;online:boolean;fail:(error:unknown)=>void;notify:(text:string)=>void;chosenRetailers:RetailerId[]}
+function ShoppingList({list,sharedLists,user,online,fail,notify,chosenRetailers}:ShoppingProps) {
   const items = useDocuments<Item>(()=>itemsRef(list.id),list.id,fail)
   const activity = useNewItems(list.id, user.uid, items.rows, items.key === list.id && !items.cached && !items.pending)
   const historyItems = useDocuments<History>(()=>historyRef(list.id),list.id,fail).rows
@@ -285,7 +293,7 @@ function ShoppingList({list,sharedLists,user,online,fail,notify}:ShoppingProps) 
   const [suggest,setSuggest] = useState(false)
   const [edit,setEdit] = useState<Item|null>(null)
   const [duplicate,setDuplicate] = useState<{item:Omit<Item,'id'>;match:Item}|null>(null)
-  const [panel,setPanel] = useState<'share'|'options'|null>(null)
+  const [panel,setPanel] = useState<'share'|'options'|'deals'|null>(null)
   const [confirmation,setConfirmation] = useState<{title:string;run:()=>Promise<unknown>}|null>(null)
   const [listName,setListName] = useState(list.name)
   const [categoryName,setCategoryName] = useState('')
@@ -334,7 +342,7 @@ function ShoppingList({list,sharedLists,user,online,fail,notify}:ShoppingProps) 
   return <>
     <section className="list-heading">
       <div><div className="sync" data-status={!online ? "offline" : items.pending || items.cached ? "pending" : "ready"} aria-live="polite"><span/>{!online?'Offline':items.pending?'Synchronizuji…':items.cached?'Načítám změny…':'Synchronizováno'}</div><h1>{list.name}</h1><p>{open.length===0?'Vše odškrtnuto':`${open.length} ${open.length===1?'položka':open.length<5?'položky':'položek'} k nákupu`}</p></div>
-      <div className="heading-actions"><button className="secondary" onClick={()=>setPanel('share')}>Sdílet</button><button className="icon" aria-label="Možnosti seznamu" onClick={()=>{setListName(list.name);setPanel('options')}}>⋮</button></div>
+      <div className="heading-actions"><button className="secondary" onClick={()=>setPanel('deals')}>Porovnat akce</button><button className="secondary" onClick={()=>setPanel('share')}>Sdílet</button><button className="icon" aria-label="Možnosti seznamu" onClick={()=>{setListName(list.name);setPanel('options')}}>⋮</button></div>
     </section>
     <div className="entry">
       <form className="add" onSubmit={add}>
@@ -364,6 +372,12 @@ function ShoppingList({list,sharedLists,user,online,fail,notify}:ShoppingProps) 
       </form>
     </Dialog>}
     {duplicate && <Dialog title="Položka už je v seznamu" close={()=>setDuplicate(null)}><p>{duplicate.match.name} {duplicate.match.qty}</p><div className="inline"><button className="primary" onClick={()=>finishAdd(duplicate.item,duplicate.match)}>Sloučit množství</button><button className="secondary" onClick={()=>finishAdd(duplicate.item)}>Přidat zvlášť</button></div></Dialog>}
+    {panel==='deals' && <Dialog title="Porovnat akce" close={()=>setPanel(null)}>
+      <p>Vybrané řetězce: {chosenRetailers.length ? chosenRetailers.map(id=>retailers.find(r=>r.id===id)?.name).join(', ') : 'žádné'}.</p>
+      <p>V seznamu je {open.length} neodškrtnutých položek.</p>
+      {!chosenRetailers.length ? <p>Nejdříve vyber obchody v Nastavení → Moje obchody.</p> : !dealProvider ? <p role="status">Porovnání cen zatím není dostupné. Pro aktuální letákové ceny chybí ověřený datový zdroj. Žádné ceny nejsou odhadované ani vymyšlené.</p> : <p>Zdroj cen je připraven k integraci.</p>}
+      <button className="secondary" onClick={()=>setPanel(null)}>Zavřít</button>
+    </Dialog>}
     {panel==='share' && <Dialog title="Sdílení seznamu" close={()=>setPanel(null)}>
       {owner && <div className="share-block">{list.invite ? <>
         <div className="share-code">{list.invite.match(/.{1,4}/g)?.join('–')}</div>
