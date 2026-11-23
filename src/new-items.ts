@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Item } from './db'
+import { updateAppBadge } from './app-badge.js'
 
 function readSeen(key: string): string[] {
   try {
@@ -35,6 +36,7 @@ export function useNewItems(listId: string, userId: string, rows: Item[], curren
     const otherItems = rows.filter(item => item.author && item.author !== userId)
     const added = otherItems.filter(item => !item.done && !known.has(item.id)).map(item => item.id)
     const displayed = otherItems.map(item => item.id)
+    if (current) void updateAppBadge(listId, displayed, true)
     const next = new Set(current ? displayed : [...known, ...displayed])
     seen.current = next
     try {
@@ -48,7 +50,7 @@ export function useNewItems(listId: string, userId: string, rows: Item[], curren
       setBadges(previous => new Set([...previous, ...added]))
       setCount(previous => previous + added.length)
     }
-  }, [key, userId, rows, visible, current])
+  }, [key, listId, userId, rows, visible, current])
 
   return { badges, count, dismiss: () => setCount(0) }
 }

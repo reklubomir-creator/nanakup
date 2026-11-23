@@ -67,7 +67,8 @@ service cloud.firestore {
       }
       match /pushActors/{uid} {
         allow create, update: if active() && uid == me()
-          && request.resource.data.keys().hasOnly(['pendingAt'])
+          && request.resource.data.keys().hasOnly(['pendingAt','itemIds'])
+          && (!('itemIds' in request.resource.data) || request.resource.data.itemIds is list)
           && request.resource.data.pendingAt == request.time;
       }
       match /history/{item} {

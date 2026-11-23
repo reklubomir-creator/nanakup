@@ -7,7 +7,7 @@ import { guessCategory, normalize } from './catalog'
 import { newItemsMessage, useNewItems } from './new-items'
 import { version } from '../package.json'
 import { pushConfigured } from './push-config'
-import { storedDevice, registerPush, unregisterPush, changePushPreference } from './push-device'
+import { storedDevice, registerPush, unregisterPush, changePushPreference, listenForPushBadges } from './push-device'
 import './style.css'
 
 const NoticeContext = createContext('')
@@ -112,6 +112,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   const [name,setName] = useState(userName(user))
   const [device,setDevice] = useState(() => pushConfigured ? storedDevice(user.uid) : null)
   const [pushBusy,setPushBusy] = useState(false)
+  useEffect(() => { if (pushConfigured && device) return listenForPushBadges() },[device?.id])
   useEffect(() => {
     if (online && device && window.Notification?.permission === 'granted') void registerPush(user.uid,device,false).catch(()=>{})
   }, [user.uid,online])

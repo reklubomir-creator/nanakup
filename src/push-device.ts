@@ -1,5 +1,6 @@
 import { doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore'
 import { app, db } from './db'
+import { updateAppBadge } from './app-badge.js'
 
 import { pushConfigured, vapidKey } from './push-config'
 
@@ -40,6 +41,7 @@ export async function registerPush(uid:string,device:PushDevice,askPermission:bo
 export async function unregisterPush(uid:string,device:PushDevice) {
   await deleteDoc(deviceRef(device.id))
   localStorage.removeItem(localKey(uid))
+  await updateAppBadge('',[])
   const { getMessaging,deleteToken,isSupported } = await import('firebase/messaging')
   if (await isSupported()) await deleteToken(getMessaging(app)).catch(()=>{})
 }
@@ -49,4 +51,16 @@ export async function changePushPreference(uid:string,device:PushDevice,listId:s
   await updateDoc(deviceRef(device.id),{muted:next.muted})
   store(uid,next)
   return next
+}
+
+export function listenForPushBadges() {
+  let active = true
+  let unsubscribe: (() => void) | undefined
+  void import('firebase/messaging').then(async ({getMessaging,isSupported,onMessage}) => {
+    if (!(await isSupported()) || !active) return
+    unsubscribe = onMessage(getMessaging(app), ({data}) => {
+      if (data?.listId && data.itemIds) void updateAppBadge(data.listId,data.itemIds.split(','))
+    })
+  }).catch(()=>{})
+  return () => {active = false; unsubscribe?.()}
 }

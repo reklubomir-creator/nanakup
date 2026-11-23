@@ -22,6 +22,15 @@ async function sendListUpdate(list, actors) {
     const membersSet = new Set(members)
     const editors = new Set(actors.docs.map(actor => actor.id).filter(uid => membersSet.has(uid)))
     const targetUsers = recipients([...membersSet], editors)
+    const idsByEditor = new Map(actors.docs.filter(actor=>editors.has(actor.id)).map(actor=>[
+      actor.id,(actor.get('itemIds') ?? []).filter(id=>typeof id==='string' && /^[A-Za-z0-9]{20}$/.test(id)).slice(-120)
+    ]))
+    const itemIds = [...new Set([...idsByEditor.values()].flat())]
+    const existing = new Map()
+    if (itemIds.length) {
+      const snapshots = await db.getAll(...itemIds.map(id=>list.collection('items').doc(id)))
+      for (const item of snapshots) if (item.exists && !item.get('done')) existing.set(item.id,item.get('author'))
+    }
     const tag = createHash('sha256').update(list.id).digest('hex').slice(0,32)
     const name = listSnapshot.get('name')
     const url = new URL(appUrl)
@@ -35,9 +44,10 @@ async function sendListUpdate(list, actors) {
         try {
           await getMessaging().send({
             token,
+            data:{listId:list.id,itemIds:[...existing].filter(([id,author])=>author!==uid && idsByEditor.get(author)?.includes(id)).slice(-120).map(([id])=>id).join(',')},
             notification:{title:typeof name === 'string' ? name : 'NaNákup',body:'Nákupní seznam byl upraven.'},
             webpush:{
-              headers:{TTL:'600',Topic:tag},
+              headers:{TTL:'600'},
               notification:{tag,icon:appUrl+'icon-192.png',renotify:false},
               fcmOptions:{link:url.href}
             }

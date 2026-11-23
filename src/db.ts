@@ -32,9 +32,9 @@ export function createList(name: string, user: User) {
   const ref = doc(collection(db,'lists'))
   return setDoc(ref,listData(name,user)).then(() => ref.id)
 }
-function commitListChange(id: string, batch: ReturnType<typeof writeBatch>) {
+function commitListChange(id: string, batch: ReturnType<typeof writeBatch>, newItemId?:string) {
   const uid = auth.currentUser?.uid
-  if (uid && pushConfigured) batch.set(doc(listRef(id),'pushActors',uid),{pendingAt:serverTimestamp()})
+  if (uid && pushConfigured) batch.set(doc(listRef(id),'pushActors',uid),{pendingAt:serverTimestamp(),...(newItemId ? {itemIds:arrayUnion(newItemId)} : {})},{merge:true})
   return batch.commit()
 }
 export function patchList(id: string, data: Partial<List>) {
@@ -54,11 +54,12 @@ export function saveItem(list: string, item: Omit<Item,'id'>, existing?: string,
   const batch = writeBatch(db)
   if (merge) batch.update(itemRef(list,merge),{qty:item.qty})
   else if (existing) batch.update(itemRef(list,existing),{name:item.name,qty:item.qty,category:item.category})
-  else batch.set(doc(itemsRef(list)),item)
+  const newItem = !merge && !existing ? doc(itemsRef(list)) : undefined
+  if (newItem) batch.set(newItem,item)
   const historyId = encodeURIComponent(normalize(item.name))
   const history = {name:item.name,qty:item.qty,category:item.category}
   batch.set(doc(historyRef(list),historyId),existing ? history : {...history,count:increment(1)},{merge:true})
-  return commitListChange(list,batch)
+  return commitListChange(list,batch,newItem?.id)
 }
 export async function clearItems(list: string, items: Item[]) {
   for (let i=0;i<items.length;i+=400) {
