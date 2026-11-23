@@ -103,3 +103,7 @@ dialog small{display:block;color:var(--muted);margin-top:14px}
 .overview-delete{position:absolute;inset:0 0 0 auto;width:90px;border-radius:0;background:#b32547;color:white}
 .overview-actions{margin-top:24px;display:grid;gap:12px;justify-items:start}
 .add.overview-add{width:100%;grid-template-columns:minmax(0,1fr) 46px;margin:0}
+
+.overview-order-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:54px;padding:5px 10px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--accent) 12%,var(--paper))}
+.overview-order-row:last-child{border-bottom:0}
+.overview-order-buttons{display:flex;flex:none}

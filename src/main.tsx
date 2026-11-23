@@ -134,7 +134,28 @@ function OverviewRow({list,open,revealed,reveal,remove}:{list:List;open:()=>void
 type WorkspaceProps = {user:User;online:boolean;code:string;setCode:(code:string)=>void;fail:(error:unknown)=>void;notify:(text:string)=>void;settings:boolean;setSettings:(open:boolean)=>void;theme:string;setTheme:(theme:string)=>void}
 function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,theme,setTheme}:WorkspaceProps) {
   const {rows,key} = useDocuments<List>(()=>listsQuery(user.uid),user.uid,fail)
-  const lists = rows.filter(list=>!list.archived).sort((a,b)=>Number(b.id.startsWith('default-'))-Number(a.id.startsWith('default-')) || a.name.localeCompare(b.name,'cs'))
+  const orderKey = 'nanakup:list-order:' + user.uid
+  const [order,setOrder] = useState<string[]>(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(orderKey) ?? '[]')
+      return Array.isArray(saved) ? saved.filter((id):id is string=>typeof id==='string') : []
+    } catch { return [] }
+  })
+  const [ordering,setOrdering] = useState(false)
+  const positions = new Map(order.map((id,index)=>[id,index]))
+  const lists = rows.filter(list=>!list.archived).sort((a,b)=>
+    (positions.get(a.id) ?? order.length) - (positions.get(b.id) ?? order.length)
+    || Number(b.id.startsWith('default-')) - Number(a.id.startsWith('default-'))
+    || a.name.localeCompare(b.name,'cs'))
+  function moveList(index:number,direction:-1|1) {
+    const next = lists.map(list=>list.id)
+    const destination = index+direction
+    if (destination<0 || destination>=next.length) return
+    ;[next[index],next[destination]] = [next[destination],next[index]]
+    setOrder(next)
+    try { localStorage.setItem(orderKey,JSON.stringify(next)) }
+    catch { notify('Pořadí se nepodařilo uložit do zařízení.') }
+  }
   const [selected,setSelected] = useState(selectedFromUrl)
   const [menu,setMenu] = useState<'join'|null>(code?'join':null)
   const [busy,setBusy] = useState(false)
@@ -156,6 +177,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
     if (replace) history.replaceState(null,'',url)
     else history.pushState(null,'',url)
     setSelected(id)
+    setOrdering(false)
     setRevealedList('')
     window.scrollTo(0,0)
   }
@@ -191,9 +213,19 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
       </nav>
       <ShoppingList key={list.id} list={list} sharedLists={lists} user={user} online={online} fail={fail} notify={notify}/>
     </> : <section className="overview">
-      <div className="overview-heading"><h1>Nákupní seznamy</h1></div>
+      <div className="overview-heading">
+        <h1>Nákupní seznamy</h1>
+        {(lists.length>1 || ordering) && <button className="secondary" aria-pressed={ordering}
+          onClick={()=>{setOrdering(!ordering);setRevealedList('')}}>{ordering?'Hotovo':'Seřadit'}</button>}
+      </div>
       {lists.length ? <ul className="overview-lists">
-        {lists.map(entry=><OverviewRow key={entry.id} list={entry} open={()=>openList(entry.id)}
+        {lists.map((entry,index)=>ordering ? <li className="overview-order-row" key={entry.id}>
+          <span className="overview-name">{entry.name}</span>
+          <span className="overview-order-buttons">
+            <button className="icon" aria-label={`Posunout seznam ${entry.name} nahoru`} disabled={index===0} onClick={()=>moveList(index,-1)}>↑</button>
+            <button className="icon" aria-label={`Posunout seznam ${entry.name} dolů`} disabled={index===lists.length-1} onClick={()=>moveList(index,1)}>↓</button>
+          </span>
+        </li> : <OverviewRow key={entry.id} list={entry} open={()=>openList(entry.id)}
           revealed={revealedList===entry.id} reveal={value=>setRevealedList(value ? entry.id : '')}
           remove={entry.owner===user.uid && entry.id!=='default-'+user.uid ? ()=>{
             void patchList(entry.id,{archived:true}).catch(fail)
