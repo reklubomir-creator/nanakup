@@ -91,12 +91,12 @@ dialog small{display:block;color:var(--muted);margin-top:14px}
 .overview{margin-top:24px}
 .overview-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:16px}
 .overview-heading h1{font-size:clamp(25px,5.6vw,34px)}
-.overview-lists{border:1px solid color-mix(in srgb,var(--accent) 26%,var(--line));border-radius:12px;overflow:hidden;margin:0}
+.overview-lists{display:grid;gap:9px;margin:0;padding:0;border:0;overflow:visible}
 .overview-row{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;min-height:54px;border-radius:0;padding:7px 10px;text-align:left;border-bottom:1px solid var(--line)}
 .overview-name{overflow-wrap:anywhere}
 .overview-count{display:grid;place-items:center;flex:none;min-width:35px;height:30px;padding:0 8px;border-radius:8px;background:var(--lavender);font-variant-numeric:tabular-nums}
-.overview-swipe{position:relative;overflow:hidden}
-.overview-swipe .overview-row{position:relative;touch-action:pan-y pinch-zoom;background:color-mix(in srgb,var(--accent) 12%,var(--paper));transition:transform .18s ease}
+.overview-swipe{position:relative;overflow:hidden;border:1px solid color-mix(in srgb,var(--accent) 36%,var(--line));border-radius:12px;box-shadow:0 2px 7px #1710270a}
+.overview-swipe .overview-row{position:relative;touch-action:pan-y pinch-zoom;background:color-mix(in srgb,var(--accent) 12%,var(--paper));border-bottom:0;transition:transform .18s ease}
 .overview-swipe .overview-row:hover,.overview-swipe .overview-row:focus-visible{background:color-mix(in srgb,var(--accent) 20%,var(--paper))}
 .overview-swipe:last-child .overview-row{border-bottom:0}
 .overview-swipe[data-revealed=true] .overview-row{transform:translateX(-90px)}
@@ -104,6 +104,6 @@ dialog small{display:block;color:var(--muted);margin-top:14px}
 .overview-actions{margin-top:24px;display:grid;gap:12px;justify-items:start}
 .add.overview-add{width:100%;grid-template-columns:minmax(0,1fr) 46px;margin:0}
 
-.overview-order-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:54px;padding:5px 10px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--accent) 12%,var(--paper))}
+.overview-order-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:54px;padding:5px 10px;border:1px solid color-mix(in srgb,var(--accent) 36%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--accent) 12%,var(--paper))}
 .overview-order-row:last-child{border-bottom:0}
 .overview-order-buttons{display:flex;flex:none}
