@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
-import { onSnapshot, type DocumentData, type Query } from 'firebase/firestore'
+import { onSnapshot, query, where, type DocumentData, type Query } from 'firebase/firestore'
 import { auth, configured, login, listsQuery, itemsRef, historyRef, initDefault, patchList, patchItem, createList, saveItem, clearItems, removeItem, moveItem, rotateInvite, joinList, removeMember, rememberName, userName, type List, type Item, type History } from './db'
 import { guessCategory, normalize } from './catalog'
 import { newItemsMessage, useNewItems } from './new-items'
@@ -12,6 +12,7 @@ import './style.css'
 
 const NoticeContext = createContext('')
 const inviteFromUrl = () => new URLSearchParams(location.hash.slice(1)).get('pozvanka') || ''
+const selectedFromUrl = () => new URLSearchParams(location.search).get('seznam') || ''
 const message = (error: unknown) => {
   const code = (error as {code?: string})?.code
   if (code === 'permission-denied') return 'K této změně nemáš oprávnění.'
@@ -85,12 +86,27 @@ function Theme({theme,change}:{theme:string;change:(theme:string)=>void}) {
   return <label>Vzhled<select value={theme} onChange={event=>change(event.target.value)}><option value="system">Podle zařízení</option><option value="light">Světlý</option><option value="dark">Tmavý</option></select></label>
 }
 
+function OverviewRow({list,open}:{list:List;open:()=>void}) {
+  const [remaining,setRemaining] = useState<number>()
+  useEffect(() => onSnapshot(query(itemsRef(list.id),where('done','==',false)), {includeMetadataChanges:true}, snapshot => {
+    // An empty cache cannot distinguish an empty list from one this device has never loaded.
+    if (!snapshot.metadata.fromCache || !snapshot.empty) setRemaining(snapshot.size)
+  }, () => setRemaining(undefined)),[list.id])
+
+  return <li>
+    <button className="overview-row" onClick={open}>
+      <span className="overview-name">{list.name}</span>
+      <span className="overview-count" aria-label={remaining===undefined?'Počet položek není dostupný':`${remaining} neodškrtnutých položek`}>{remaining ?? '–'}</span>
+    </button>
+  </li>
+}
+
 type WorkspaceProps = {user:User;online:boolean;code:string;setCode:(code:string)=>void;fail:(error:unknown)=>void;notify:(text:string)=>void;settings:boolean;setSettings:(open:boolean)=>void;theme:string;setTheme:(theme:string)=>void}
 function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,theme,setTheme}:WorkspaceProps) {
   const {rows,key} = useDocuments<List>(()=>listsQuery(user.uid),user.uid,fail)
   const lists = rows.filter(list=>!list.archived).sort((a,b)=>Number(b.id.startsWith('default-'))-Number(a.id.startsWith('default-')) || a.name.localeCompare(b.name,'cs'))
-  const [selected,setSelected] = useState(() => new URLSearchParams(location.search).get('seznam') || '')
-  const [menu,setMenu] = useState<'lists'|'join'|null>(code?'join':null)
+  const [selected,setSelected] = useState(selectedFromUrl)
+  const [menu,setMenu] = useState<'create'|'join'|null>(code?'join':null)
   const [busy,setBusy] = useState(false)
   const [newList,setNewList] = useState('')
   const [name,setName] = useState(userName(user))
@@ -115,33 +131,56 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
       setDevice(next)
     }
   }
-  const list = lists.find(entry=>entry.id===selected) ?? lists[0]
+  const list = lists.find(entry=>entry.id===selected)
+  useEffect(() => {
+    const restore = () => setSelected(selectedFromUrl())
+    window.addEventListener('popstate',restore)
+    return () => window.removeEventListener('popstate',restore)
+  },[])
+  function openList(id:string,replace=false) {
+    const url = new URL(location.href)
+    if (id) url.searchParams.set('seznam',id)
+    else url.searchParams.delete('seznam')
+    url.hash = ''
+    if (replace) history.replaceState(null,'',url)
+    else history.pushState(null,'',url)
+    setSelected(id)
+    window.scrollTo(0,0)
+  }
   useEffect(() => {if(online) void initDefault(user).catch(fail)},[user.uid,online])
   async function join(event:FormEvent) {
     event.preventDefault()
     setBusy(true)
     try {
-      setSelected(await joinList(code,user))
+      openList(await joinList(code,user),true)
       setCode('')
-      history.replaceState(null,'',location.pathname)
       setMenu(null)
     } catch(error) {fail(error)}
     finally {setBusy(false)}
   }
   return <main className="workspace">
-    <nav className="list-nav" aria-label="Nákupní seznamy">
-      <select aria-label="Vybrat seznam" value={list?.id || ''} onChange={event=>setSelected(event.target.value)}>
-        {!list && <option value="">Nákupní seznamy</option>}{lists.map(entry=><option key={entry.id} value={entry.id}>{entry.name}</option>)}
-      </select>
-      <button className="secondary" onClick={()=>setMenu('lists')}>Seznamy</button>
-    </nav>
-    {list ? <ShoppingList key={list.id} list={list} user={user} online={online} fail={fail} notify={notify}/> : <section className="empty">{key ? 'Čekám na první seznam…' : 'Načítám seznamy…'}</section>}
-    {menu==='lists' && <Dialog title="Tvoje seznamy" close={()=>setMenu(null)}>
-      <div className="dialog-list">{lists.map(entry=><button key={entry.id} onClick={()=>{setSelected(entry.id);setMenu(null)}}>{entry.name}</button>)}</div>
-      <form className="inline" onSubmit={event=>{event.preventDefault();if(newList.trim()) void createList(newList.trim(),user).then(id=>{setSelected(id);setNewList('');setMenu(null)}).catch(fail)}}>
-        <input value={newList} onChange={event=>setNewList(event.target.value)} maxLength={120} aria-label="Název nového seznamu" placeholder="Nový seznam"/><button className="primary" disabled={!online || !newList.trim()}>Vytvořit</button>
+    {list ? <>
+      <nav className="list-nav" aria-label="Nákupní seznamy">
+        <button className="secondary" onClick={()=>openList('')}>← Přehled</button>
+        <select aria-label="Vybrat seznam" value={list.id} onChange={event=>openList(event.target.value,true)}>
+          {lists.map(entry=><option key={entry.id} value={entry.id}>{entry.name}</option>)}
+        </select>
+      </nav>
+      <ShoppingList key={list.id} list={list} user={user} online={online} fail={fail} notify={notify}/>
+    </> : <section className="overview">
+      <div className="overview-heading">
+        <h1>Nákupní seznamy</h1>
+        <button className="primary" disabled={!online} onClick={()=>setMenu('create')}>Nový seznam</button>
+      </div>
+      {lists.length ? <ul className="overview-lists">
+        {lists.map(entry=><OverviewRow key={entry.id} list={entry} open={()=>openList(entry.id)}/>)}
+      </ul> : <p className="empty">{key ? 'Zatím tu nejsou žádné seznamy.' : 'Načítám seznamy…'}</p>}
+      <button className="secondary" disabled={!online} onClick={()=>setMenu('join')}>Zadat kód pozvánky</button>
+    </section>}
+    {menu==='create' && <Dialog title="Nový seznam" close={()=>setMenu(null)}>
+      <form className="inline" onSubmit={event=>{event.preventDefault();if(newList.trim()) void createList(newList.trim(),user).then(id=>{openList(id);setNewList('');setMenu(null)}).catch(fail)}}>
+        <input value={newList} onChange={event=>setNewList(event.target.value)} maxLength={120} aria-label="Název nového seznamu" placeholder="Název seznamu"/><button className="primary" disabled={!online || !newList.trim()}>Vytvořit</button>
       </form>
-      <button className="secondary" onClick={()=>setMenu('join')}>Zadat kód pozvánky</button>
     </Dialog>}
     {menu==='join' && <Dialog title="Připojit se k seznamu" close={()=>setMenu(null)}>
       <form onSubmit={join}><label>Kód pozvánky<input value={code} onChange={event=>setCode(event.target.value.toUpperCase())} autoCapitalize="characters" autoComplete="off" maxLength={24} required/></label>
