@@ -1,6 +1,6 @@
 {
   "name": "nanakup",
-  "version": "0.9.12",
+  "version": "0.9.13",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -15,7 +15,10 @@
   "dependencies": {
     "firebase": "^13.4.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "workbox-core": "^7.4.1",
+    "workbox-precaching": "^7.4.1",
+    "workbox-routing": "^7.4.1"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

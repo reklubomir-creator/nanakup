@@ -48,7 +48,7 @@ export function useNewItems(listId: string, userId: string, rows: Item[], curren
       setBadges(previous => new Set([...previous, ...added]))
       setCount(previous => previous + added.length)
     }
-  }, [key, userId, rows, visible, current])
+  }, [key, listId, userId, rows, visible, current])
 
   return { badges, count, dismiss: () => setCount(0) }
 }

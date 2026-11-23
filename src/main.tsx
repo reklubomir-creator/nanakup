@@ -5,6 +5,9 @@ import { onSnapshot, query, where, type DocumentData, type Query } from 'firebas
 import { auth, configured, login, listsQuery, itemsRef, historyRef, initDefault, patchList, patchItem, createList, saveItem, clearItems, removeItem, moveItem, rotateInvite, joinList, addSharedMember, removeMember, rememberName, userName, type List, type Item, type History } from './db'
 import { guessCategory, normalize } from './catalog'
 import { newItemsMessage, useNewItems } from './new-items'
+import { updateAppBadge } from './app-badge.js'
+import { registerPush, unregisterPush, storedDevice, listenForPushBadges, changePushPreference, type PushDevice } from './push-device'
+import { pushConfigured } from './push-config'
 import { version } from '../package.json'
 import './style.css'
 
@@ -134,6 +137,38 @@ function OverviewRow({list,open,revealed,reveal,remove}:{list:List;open:()=>void
 type WorkspaceProps = {user:User;online:boolean;code:string;setCode:(code:string)=>void;fail:(error:unknown)=>void;notify:(text:string)=>void;settings:boolean;setSettings:(open:boolean)=>void;theme:string;setTheme:(theme:string)=>void}
 function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,theme,setTheme}:WorkspaceProps) {
   const {rows,key} = useDocuments<List>(()=>listsQuery(user.uid),user.uid,fail)
+  // Count all unchecked items across active lists, independently of the current view.
+  const activeIds = rows.filter(list => !list.archived).map(list => list.id).sort()
+  const activeIdsKey = JSON.stringify(activeIds)
+
+  useEffect(() => {
+    const ids = JSON.parse(activeIdsKey) as string[]
+    const counts = new Map<string, number>()
+    const loaded = new Set<string>()
+
+    if (!ids.length) {
+      void updateAppBadge(0)
+      return
+    }
+
+    const subscriptions = ids.map(id =>
+      onSnapshot(
+        query(itemsRef(id), where('done', '==', false)),
+        snapshot => {
+          if (snapshot.metadata.fromCache && snapshot.empty && !loaded.has(id)) return
+          counts.set(id, snapshot.size)
+          loaded.add(id)
+          if (loaded.size === ids.length) {
+            void updateAppBadge([...counts.values()].reduce((sum, count) => sum + count, 0))
+          }
+        },
+        error => console.warn('Badge count unavailable', id, error)
+      )
+    )
+
+    return () => subscriptions.forEach(unsubscribe => unsubscribe())
+  }, [activeIdsKey])
+
   const orderKey = 'nanakup:list-order:' + user.uid
   const [order,setOrder] = useState<string[]>(() => {
     try {
@@ -163,6 +198,37 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   const [revealedList,setRevealedList] = useState('')
   const [creating,setCreating] = useState(false)
   const [name,setName] = useState(userName(user))
+
+  const [pushDevice,setPushDevice] = useState<PushDevice|null>(()=>storedDevice(user.uid))
+  const [pushBusy,setPushBusy] = useState(false)
+
+  useEffect(() => {
+    if (!pushDevice) return
+    return listenForPushBadges()
+  }, [pushDevice])
+
+
+  async function togglePush() {
+    if (pushBusy) return
+    setPushBusy(true)
+    try {
+      if (pushDevice) {
+        await unregisterPush(user.uid,pushDevice)
+        setPushDevice(null)
+        notify('Oznámení vypnuta.')
+      } else {
+        const device:PushDevice = {id:crypto.randomUUID(),muted:[]}
+        await registerPush(user.uid,device,true)
+        setPushDevice(device)
+        notify('Oznámení zapnuta.')
+      }
+    } catch(error) {
+      fail(error)
+    } finally {
+      setPushBusy(false)
+    }
+  }
+
   const list = lists.find(entry=>entry.id===selected)
   useEffect(() => {
     const restore = () => setSelected(selectedFromUrl())
@@ -211,7 +277,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
           {lists.map(entry=><option key={entry.id} value={entry.id}>{entry.name}</option>)}
         </select>
       </nav>
-      <ShoppingList key={list.id} list={list} sharedLists={lists} user={user} online={online} fail={fail} notify={notify}/>
+      <ShoppingList key={list.id} list={list} sharedLists={lists} user={user} online={online} fail={fail} notify={notify} pushDevice={pushDevice} setPushDevice={setPushDevice}/>
     </> : <section className="overview">
       <div className="overview-heading">
         <h1>Nákupní seznamy</h1>
@@ -252,19 +318,47 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
         <label>Zobrazované jméno<input value={name} onChange={event=>setName(event.target.value)} maxLength={120} required/></label>
         <button className="secondary" disabled={!name.trim() || !online}>Uložit jméno</button>
       </form>
+      <section>
+        <strong>Oznámení</strong>
+        <p><small>Upozornění na změny sdílených nákupních seznamů na tomto zařízení.</small></p>
+        <button className="secondary" type="button"
+          disabled={!online || pushBusy || !pushConfigured}
+          onClick={()=>void togglePush()}>
+          {pushBusy ? 'Ukládám…' : pushDevice ? 'Vypnout oznámení' : 'Zapnout oznámení'}
+        </button>
+        {!pushConfigured && <small>Oznámení zatím nejsou nakonfigurována.</small>}
+      </section>
       <button className="secondary" onClick={()=>{void signOut(auth).catch(fail);setSettings(false)}}>Odhlásit se</button>
       <small>NaNákup {version}</small>
     </Dialog>}
   </main>
 }
 
-type ShoppingProps = {list:List;sharedLists:List[];user:User;online:boolean;fail:(error:unknown)=>void;notify:(text:string)=>void}
-function ShoppingList({list,sharedLists,user,online,fail,notify}:ShoppingProps) {
+type ShoppingProps = {list:List;sharedLists:List[];user:User;online:boolean;fail:(error:unknown)=>void;notify:(text:string)=>void;pushDevice:PushDevice|null;setPushDevice:(device:PushDevice|null)=>void}
+function ShoppingList({list,sharedLists,user,online,fail,notify,pushDevice,setPushDevice}:ShoppingProps) {
   const items = useDocuments<Item>(()=>itemsRef(list.id),list.id,fail)
   const activity = useNewItems(list.id, user.uid, items.rows, items.key === list.id && !items.cached && !items.pending)
   const historyItems = useDocuments<History>(()=>historyRef(list.id),list.id,fail).rows
   const [draft,setDraft] = useState('')
   const [addingMember,setAddingMember] = useState('')
+
+  const [pushSaving,setPushSaving] = useState(false)
+
+  async function toggleListPush() {
+    if (!pushDevice || pushSaving) return
+    setPushSaving(true)
+    try {
+      const muted = !pushDevice.muted.includes(list.id)
+      const updated = await changePushPreference(user.uid,pushDevice,list.id,muted)
+      setPushDevice(updated)
+      notify(muted ? 'Oznámení seznamu ztlumena.' : 'Oznámení seznamu zapnuta.')
+    } catch(error) {
+      fail(error)
+    } finally {
+      setPushSaving(false)
+    }
+  }
+
   const candidates = new Map<string,{sourceId:string;name:string}>()
   if (list.owner===user.uid) {
     for (const source of sharedLists) {
@@ -383,6 +477,13 @@ function ShoppingList({list,sharedLists,user,online,fail,notify}:ShoppingProps) 
         </li>)}</ul>
       </div>}
       <h3>Členové</h3><ul className="members">{list.memberIds.map(uid=><li key={uid}><span>{list.names[uid] || 'Člen'}{uid===list.owner?' · vlastník':''}</span>{owner && uid!==user.uid&&<button className="quiet" disabled={!online} onClick={()=>setConfirmation({title:`Odebrat člena ${list.names[uid] || 'Člen'}?`,run:()=>removeMember(list,uid,true)})}>Odebrat</button>}</li>)}</ul>
+      {pushDevice && <label className="switch">
+        <input type="checkbox"
+          checked={pushDevice.muted.includes(list.id)}
+          disabled={!online || pushSaving}
+          onChange={()=>void toggleListPush()}/>
+        Ztlumit oznámení tohoto seznamu
+      </label>}
       {!owner && <button className="danger" disabled={!online} onClick={()=>setConfirmation({title:'Opustit sdílený seznam?',run:()=>removeMember(list,user.uid,false)})}>Opustit seznam</button>}
     </Dialog>}
     {panel==='options' && <Dialog title="Možnosti seznamu" close={()=>setPanel(null)}>
