@@ -58,8 +58,25 @@ service cloud.firestore {
               (after.invite == '' || getAfter(inviteFor(after.invite)).data.listId == id)
           ));
       }
+      function sharedContact(sourceId,uid,displayName) {
+        let source = get(pathFor(sourceId)).data;
+        return !source.archived && member(source) && uid in source.memberIds
+          && displayName == source.names[uid];
+      }
+      function ownerAddsSharedContact(after,before) {
+        let grant = after.get('memberGrant',{});
+        let uid = grant.get('uid','');
+        let sourceId = grant.get('sourceId','');
+        return owner(before) && !before.archived
+          && changes().hasOnly(['memberIds','names','memberGrant'])
+          && grant.keys().hasOnly(['uid','sourceId'])
+          && name(uid) && name(sourceId) && sourceId != id && !(uid in before.memberIds)
+          && after.memberIds == before.memberIds.concat([uid])
+          && after.names.diff(before.names).affectedKeys().hasOnly([uid])
+          && name(after.names[uid]) && sharedContact(sourceId,uid,after.names[uid]);
+      }
       allow update: if ownerEdit(request.resource.data,resource.data) || joins(request.resource.data,resource.data)
-        || leaves(request.resource.data,resource.data) || renamesSelf(request.resource.data,resource.data);
+        || ownerAddsSharedContact(request.resource.data,resource.data) || leaves(request.resource.data,resource.data) || renamesSelf(request.resource.data,resource.data);
       function active() {
         return signed() && !get(pathFor(id)).data.archived && member(get(pathFor(id)).data);
       }

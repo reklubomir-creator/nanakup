@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type FormEvent,
 import { createRoot } from 'react-dom/client'
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
 import { onSnapshot, query, where, type DocumentData, type Query } from 'firebase/firestore'
-import { auth, configured, login, listsQuery, itemsRef, historyRef, initDefault, patchList, patchItem, createList, saveItem, clearItems, removeItem, moveItem, rotateInvite, joinList, removeMember, rememberName, userName, type List, type Item, type History } from './db'
+import { auth, configured, login, listsQuery, itemsRef, historyRef, initDefault, patchList, patchItem, createList, saveItem, clearItems, removeItem, moveItem, rotateInvite, joinList, addSharedMember, removeMember, rememberName, userName, type List, type Item, type History } from './db'
 import { guessCategory, normalize } from './catalog'
 import { newItemsMessage, useNewItems } from './new-items'
 import { version } from '../package.json'
@@ -189,7 +189,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
           {lists.map(entry=><option key={entry.id} value={entry.id}>{entry.name}</option>)}
         </select>
       </nav>
-      <ShoppingList key={list.id} list={list} user={user} online={online} fail={fail} notify={notify}/>
+      <ShoppingList key={list.id} list={list} sharedLists={lists} user={user} online={online} fail={fail} notify={notify}/>
     </> : <section className="overview">
       <div className="overview-heading"><h1>Nákupní seznamy</h1></div>
       {lists.length ? <ul className="overview-lists">
@@ -226,12 +226,29 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   </main>
 }
 
-type ShoppingProps = {list:List;user:User;online:boolean;fail:(error:unknown)=>void;notify:(text:string)=>void}
-function ShoppingList({list,user,online,fail,notify}:ShoppingProps) {
+type ShoppingProps = {list:List;sharedLists:List[];user:User;online:boolean;fail:(error:unknown)=>void;notify:(text:string)=>void}
+function ShoppingList({list,sharedLists,user,online,fail,notify}:ShoppingProps) {
   const items = useDocuments<Item>(()=>itemsRef(list.id),list.id,fail)
   const activity = useNewItems(list.id, user.uid, items.rows, items.key === list.id && !items.cached && !items.pending)
   const historyItems = useDocuments<History>(()=>historyRef(list.id),list.id,fail).rows
   const [draft,setDraft] = useState('')
+  const [addingMember,setAddingMember] = useState('')
+  const candidates = new Map<string,{sourceId:string;name:string}>()
+  if (list.owner===user.uid) {
+    for (const source of sharedLists) {
+      for (const uid of source.memberIds) {
+        if (!list.memberIds.includes(uid) && !candidates.has(uid) && source.names[uid]) {
+          candidates.set(uid,{sourceId:source.id,name:source.names[uid]})
+        }
+      }
+    }
+  }
+  async function addMember(uid:string,sourceId:string,name:string) {
+    setAddingMember(uid)
+    try { await addSharedMember(list.id,sourceId,uid,name) }
+    catch(error) { fail(error) }
+    finally { setAddingMember('') }
+  }
   const [qty,setQty] = useState('')
   const [suggest,setSuggest] = useState(false)
   const [edit,setEdit] = useState<Item|null>(null)
@@ -323,6 +340,16 @@ function ShoppingList({list,user,online,fail,notify}:ShoppingProps) {
         <button className="primary" onClick={()=>{const url=new URL(location.pathname,location.origin);url.hash=new URLSearchParams({pozvanka:list.invite}).toString();void navigator.clipboard.writeText(url.href).then(()=>notify('Odkaz zkopírován.')).catch(fail)}}>Kopírovat odkaz</button>
         <button className="quiet" disabled={!online} onClick={()=>action(rotateInvite(list,true))}>Zneplatnit pozvánku</button>
       </> : <button className="primary" disabled={!online} onClick={()=>action(rotateInvite(list))}>Vytvořit pozvánku</button>}</div>}
+      {owner && candidates.size>0 && <div className="share-block">
+        <h3>Lidé z dalších seznamů</h3>
+        <ul className="members">{[...candidates].map(([uid,person])=><li key={uid}>
+          <span>{person.name}</span>
+          <button className="secondary" disabled={!online || Boolean(addingMember)}
+            aria-label={`Přidat ${person.name}`} onClick={()=>void addMember(uid,person.sourceId,person.name)}>
+            {addingMember===uid?'Přidávám…':'✓ Přidat'}
+          </button>
+        </li>)}</ul>
+      </div>}
       <h3>Členové</h3><ul className="members">{list.memberIds.map(uid=><li key={uid}><span>{list.names[uid] || 'Člen'}{uid===list.owner?' · vlastník':''}</span>{owner && uid!==user.uid&&<button className="quiet" disabled={!online} onClick={()=>setConfirmation({title:`Odebrat člena ${list.names[uid] || 'Člen'}?`,run:()=>removeMember(list,uid,true)})}>Odebrat</button>}</li>)}</ul>
       {!owner && <button className="danger" disabled={!online} onClick={()=>setConfirmation({title:'Opustit sdílený seznam?',run:()=>removeMember(list,user.uid,false)})}>Opustit seznam</button>}
     </Dialog>}

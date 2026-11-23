@@ -95,3 +95,8 @@ export function removeMember(list: List, uid: string, revoke: boolean) {
   } else batch.update(listRef(list.id),{memberIds:arrayRemove(uid)})
   return batch.commit()
 }
+
+export function addSharedMember(listId: string, sourceId: string, uid: string, name: string) {
+  return updateDoc(listRef(listId),'memberIds',arrayUnion(uid),new FieldPath('names',uid),name,
+    'memberGrant',{sourceId,uid})
+}
