@@ -84,15 +84,47 @@ function Theme({theme,change}:{theme:string;change:(theme:string)=>void}) {
   return <label>Vzhled<select value={theme} onChange={event=>change(event.target.value)}><option value="system">Podle zařízení</option><option value="light">Světlý</option><option value="dark">Tmavý</option></select></label>
 }
 
-function OverviewRow({list,open}:{list:List;open:()=>void}) {
+function OverviewRow({list,open,revealed,reveal,remove}:{list:List;open:()=>void;revealed:boolean;reveal:(value:boolean)=>void;remove?:()=>void}) {
+  const start = useRef<{x:number;y:number;id:number} | null>(null)
+  const swiped = useRef(false)
+  const actionButton = useRef<HTMLButtonElement>(null)
   const [remaining,setRemaining] = useState<number>()
   useEffect(() => onSnapshot(query(itemsRef(list.id),where('done','==',false)), {includeMetadataChanges:true}, snapshot => {
     // An empty cache cannot distinguish an empty list from one this device has never loaded.
     if (!snapshot.metadata.fromCache || !snapshot.empty) setRemaining(snapshot.size)
   }, () => setRemaining(undefined)),[list.id])
 
-  return <li>
-    <button className="overview-row" onClick={open}>
+  return <li className="overview-swipe" data-revealed={revealed}>
+    {remove && <button ref={actionButton} className="overview-delete" tabIndex={revealed ? 0 : -1} aria-hidden={!revealed} aria-label={`Smazat seznam ${list.name}`} onClick={remove}>Smazat</button>}
+    <button className="overview-row" aria-keyshortcuts={remove ? 'ArrowLeft ArrowRight' : undefined}
+      onPointerDown={event=>{
+        swiped.current = false
+        start.current = remove && event.isPrimary && event.pointerType !== 'mouse' ? {x:event.clientX,y:event.clientY,id:event.pointerId} : null
+      }}
+      onPointerCancel={()=>{start.current = null}}
+      onPointerUp={event=>{
+        const origin = start.current
+        start.current = null
+        if (!origin || origin.id !== event.pointerId) return
+        const x = event.clientX-origin.x
+        const y = event.clientY-origin.y
+        if (Math.abs(x) < 42 || Math.abs(x) < Math.abs(y)*1.35) return
+        swiped.current = true
+        reveal(x < 0)
+      }}
+      onKeyDown={event=>{
+        if (!remove) return
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          reveal(true)
+          requestAnimationFrame(()=>actionButton.current?.focus())
+        } else if (event.key === 'ArrowRight' || event.key === 'Escape') reveal(false)
+      }}
+      onClick={event=>{
+        if (event.detail && swiped.current) {swiped.current=false;return}
+        if (revealed) reveal(false)
+        else open()
+      }}>
       <span className="overview-name">{list.name}</span>
       <span className="overview-count" aria-label={remaining===undefined?'Počet položek není dostupný':`${remaining} neodškrtnutých položek`}>{remaining ?? '–'}</span>
     </button>
@@ -107,6 +139,8 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   const [menu,setMenu] = useState<'create'|'join'|null>(code?'join':null)
   const [busy,setBusy] = useState(false)
   const [newList,setNewList] = useState('')
+  const [revealedList,setRevealedList] = useState('')
+  const [deleteList,setDeleteList] = useState<List|null>(null)
   const [name,setName] = useState(userName(user))
   const list = lists.find(entry=>entry.id===selected)
   useEffect(() => {
@@ -122,6 +156,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
     if (replace) history.replaceState(null,'',url)
     else history.pushState(null,'',url)
     setSelected(id)
+    setRevealedList('')
     window.scrollTo(0,0)
   }
   useEffect(() => {if(online) void initDefault(user).catch(fail)},[user.uid,online])
@@ -150,10 +185,22 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
         <button className="primary" disabled={!online} onClick={()=>setMenu('create')}>Nový seznam</button>
       </div>
       {lists.length ? <ul className="overview-lists">
-        {lists.map(entry=><OverviewRow key={entry.id} list={entry} open={()=>openList(entry.id)}/>)}
+        {lists.map(entry=><OverviewRow key={entry.id} list={entry} open={()=>openList(entry.id)}
+          revealed={revealedList===entry.id} reveal={value=>setRevealedList(value ? entry.id : '')}
+          remove={entry.owner===user.uid && entry.id!=='default-'+user.uid ? ()=>setDeleteList(entry) : undefined}/>)}
       </ul> : <p className="empty">{key ? 'Zatím tu nejsou žádné seznamy.' : 'Načítám seznamy…'}</p>}
       <button className="secondary" disabled={!online} onClick={()=>setMenu('join')}>Zadat kód pozvánky</button>
     </section>}
+    {deleteList && <Dialog title={`Smazat seznam „${deleteList.name}“?`} close={()=>setDeleteList(null)}>
+      <div className="inline">
+        <button className="secondary" onClick={()=>setDeleteList(null)}>Zrušit</button>
+        <button className="danger" onClick={()=>{
+          void patchList(deleteList.id,{archived:true}).catch(fail)
+          setDeleteList(null)
+          setRevealedList('')
+        }}>Smazat seznam</button>
+      </div>
+    </Dialog>}
     {menu==='create' && <Dialog title="Nový seznam" close={()=>setMenu(null)}>
       <form className="inline" onSubmit={event=>{event.preventDefault();if(newList.trim()) void createList(newList.trim(),user).then(id=>{openList(id);setNewList('');setMenu(null)}).catch(fail)}}>
         <input value={newList} onChange={event=>setNewList(event.target.value)} maxLength={120} aria-label="Název nového seznamu" placeholder="Název seznamu"/><button className="primary" disabled={!online || !newList.trim()}>Vytvořit</button>

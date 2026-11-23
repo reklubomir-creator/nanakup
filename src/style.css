@@ -96,3 +96,8 @@ dialog small{display:block;color:var(--muted);margin-top:14px}
 .overview-row:hover,.overview-row:focus-visible{background:var(--card)}
 .overview-name{overflow-wrap:anywhere}
 .overview-count{display:grid;place-items:center;flex:none;min-width:35px;height:30px;padding:0 8px;border-radius:8px;background:var(--lavender);font-variant-numeric:tabular-nums}
+.overview-swipe{position:relative;overflow:hidden}
+.overview-swipe .overview-row{position:relative;touch-action:pan-y pinch-zoom;background:var(--paper);transition:transform .18s ease}
+.overview-swipe .overview-row:hover,.overview-swipe .overview-row:focus-visible{background:var(--card)}
+.overview-swipe[data-revealed=true] .overview-row{transform:translateX(-90px)}
+.overview-delete{position:absolute;inset:0 0 0 auto;width:90px;border-radius:0;background:#b32547;color:white}
