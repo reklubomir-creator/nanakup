@@ -324,6 +324,8 @@ function ShoppingList({list,user,online,fail,notify}:ShoppingProps) {
     {panel==='share' && <Dialog title="Sdílení seznamu" close={()=>setPanel(null)}>
       {owner && <div className="share-block">{list.invite ? <>
         <div className="share-code">{list.invite.match(/.{1,4}/g)?.join('–')}</div>
+        {list.invite.length === 4 && <p>Kód a odkaz platí 10 minut od vytvoření.</p>}
+        <button className="quiet" disabled={!online} onClick={()=>action(rotateInvite(list))}>Vygenerovat nový kód</button>
         <button className="primary" onClick={()=>{const url=new URL(location.pathname,location.origin);url.hash=new URLSearchParams({pozvanka:list.invite}).toString();void navigator.clipboard.writeText(url.href).then(()=>notify('Odkaz zkopírován.')).catch(fail)}}>Kopírovat odkaz</button>
         <button className="quiet" disabled={!online} onClick={()=>action(rotateInvite(list,true))}>Zneplatnit pozvánku</button>
       </> : <button className="primary" disabled={!online} onClick={()=>action(rotateInvite(list))}>Vytvořit pozvánku</button>}</div>}

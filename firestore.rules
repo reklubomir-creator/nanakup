@@ -5,6 +5,12 @@ service cloud.firestore {
     function me() { return request.auth.uid; }
     function pathFor(id) { return /databases/$(database)/documents/lists/$(id); }
     function inviteFor(code) { return /databases/$(database)/documents/invites/$(code); }
+    function shortInvite(code) { return code.matches('[A-Z0-9]{4}'); }
+    function legacyInvite(code) { return code.matches('[23456789A-HJ-NP-Z]{12}'); }
+    function inviteActive(code, data) {
+      return legacyInvite(code) || (shortInvite(code)
+        && data.createdAt is timestamp && request.time < data.createdAt + duration.value(10,'m'));
+    }
     function member(data) { return signed() && me() in data.memberIds; }
     function owner(data) { return signed() && data.owner == me(); }
     function short(s,n) { return s is string && s.size() <= n; }
@@ -28,8 +34,10 @@ service cloud.firestore {
       }
       function joins(after,before) {
         return signed() && !before.archived && changes().hasOnly(['memberIds','names','joinCode'])
-          && after.joinCode is string && after.joinCode.matches('[23456789A-HJ-NP-Z]{12}') && after.joinCode == before.invite
-          && exists(inviteFor(after.joinCode)) && get(inviteFor(after.joinCode)).data.listId == id
+          && after.joinCode is string && after.joinCode == before.invite
+          && after.joinCode != '' && exists(inviteFor(after.joinCode))
+          && get(inviteFor(after.joinCode)).data.listId == id
+          && inviteActive(after.joinCode,get(inviteFor(after.joinCode)).data)
           && onlyAddSelf(after,before);
       }
       function leaves(after,before) {
@@ -65,6 +73,11 @@ service cloud.firestore {
         allow create: if active() && valid(request.resource.data) && request.resource.data.author == me();
         allow update: if active() && valid(request.resource.data) && request.resource.data.author == resource.data.author;
       }
+      match /pushActors/{uid} {
+        allow create, update: if active() && uid == me()
+          && request.resource.data.keys().hasOnly(['pendingAt'])
+          && request.resource.data.pendingAt == request.time;
+      }
       match /history/{item} {
         allow read: if active();
         allow create, update: if active()
@@ -74,9 +87,25 @@ service cloud.firestore {
           && (!('count' in request.resource.data) || request.resource.data.count is int);
       }
     }
+    match /pushDevices/{id} {
+      function validDevice(data) {
+        return data.keys().hasOnly(['uid','token','muted'])
+          && data.uid == me() && name(data.uid)
+          && short(data.token,4096) && data.token.size() > 0
+          && data.muted is list && data.muted.size() <= 100;
+      }
+      allow get: if signed() && resource.data.uid == me();
+      allow create: if signed() && validDevice(request.resource.data);
+      allow update: if signed() && resource.data.uid == me() && validDevice(request.resource.data);
+      allow delete: if signed() && resource.data.uid == me();
+    }
     match /invites/{code} {
-      allow get: if signed();
-      allow create: if signed() && code.matches('[23456789A-HJ-NP-Z]{12}') && request.resource.data.keys().hasOnly(['listId'])
+      allow get: if signed() && (resource == null || inviteActive(code,resource.data));
+      allow create: if signed() && (
+          (legacyInvite(code) && request.resource.data.keys().hasOnly(['listId'])) ||
+          (shortInvite(code) && request.resource.data.keys().hasOnly(['listId','createdAt'])
+            && request.resource.data.createdAt == request.time)
+        )
         && owner(get(pathFor(request.resource.data.listId)).data)
         && getAfter(pathFor(request.resource.data.listId)).data.invite == code;
       allow delete: if signed() && owner(get(pathFor(resource.data.listId)).data)

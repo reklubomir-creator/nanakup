@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth, GoogleAuthProvider, signInWithPopup, updateProfile, type User } from 'firebase/auth'
-import { collection, doc, getDocFromServer, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, setDoc, updateDoc, deleteDoc, query, where, writeBatch, increment, arrayUnion, arrayRemove, FieldPath, runTransaction } from 'firebase/firestore'
+import { collection, doc, getDocFromServer, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, setDoc, updateDoc, deleteDoc, query, where, writeBatch, increment, serverTimestamp, arrayUnion, arrayRemove, FieldPath, runTransaction } from 'firebase/firestore'
 import { firebaseConfig } from './firebase-config'
 import { categories, normalize, type Category } from './catalog'
 
@@ -61,18 +61,27 @@ export function moveItem(list: string, first: Item, second: Item) {
   return batch.commit()
 }
 export async function rotateInvite(list: List, revoke = false) {
-  const alphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
-  const code = Array.from(crypto.getRandomValues(new Uint8Array(12)),byte=>alphabet[byte & 31]).join('')
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  let code = ''
+  while (code.length < 4 && !revoke) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(8))) {
+      if (byte < 252) code += alphabet[byte % 36]
+      if (code.length === 4) break
+    }
+  }
   const batch = writeBatch(db)
   if (list.invite) batch.delete(doc(db,'invites',list.invite))
-  if (!revoke) batch.set(doc(db,'invites',code),{listId:list.id})
+  if (!revoke) batch.set(doc(db,'invites',code),{listId:list.id,createdAt:serverTimestamp()})
   batch.update(listRef(list.id),{invite:revoke ? '' : code})
   await batch.commit()
 }
 export async function joinList(raw: string, user: User) {
   const code = raw.toUpperCase().replace(/[\s–—-]/g,'')
-  if (!/^[23456789A-HJ-NP-Z]{12}$/.test(code)) throw new Error('Zkontroluj dvanáctimístný kód.')
-  const invite = await getDocFromServer(doc(db,'invites',code))
+  if (!/^(?:[A-Z0-9]{4}|[23456789A-HJ-NP-Z]{12})$/.test(code)) throw new Error('Zkontroluj kód pozvánky.')
+  const invite = await getDocFromServer(doc(db,'invites',code)).catch(error=>{
+    if (error.code === 'permission-denied') throw new Error('Kód pozvánky je neplatný nebo vypršel.')
+    throw error
+  })
   if (!invite.exists()) throw new Error('Pozvánka už není platná.')
   const id = invite.data().listId as string
   await updateDoc(listRef(id),'memberIds',arrayUnion(user.uid),new FieldPath('names',user.uid),userName(user),'joinCode',code)
