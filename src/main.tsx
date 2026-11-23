@@ -269,11 +269,11 @@ function ShoppingList({list,user,online,fail,notify}:ShoppingProps) {
   function row(item:Item,index?:number) {
     const isNew = !item.done && activity.badges.has(item.id)
     return <li className={item.done?'done item':'item'} key={item.id}>
-      <button className="check-row" role="checkbox" aria-checked={item.done} aria-label={isNew ? item.name + ' · Nové' : item.name} onClick={()=>{action(patchItem(list.id,item.id,{done:!item.done}));navigator.vibrate?.(12)}}>
-        <span className="checkbox" aria-hidden="true">{item.done?'✓':''}</span><span className="item-name">{item.name}{isNew && <span className="new-badge">Nové</span>}</span>{item.qty&&<span className="qty">{item.qty}</span>}
+      <button className="check-row" role="checkbox" aria-checked={item.done} aria-label={[item.name,item.qty,isNew ? 'Nové' : ''].filter(Boolean).join(' · ')} onClick={()=>{action(patchItem(list.id,item.id,{done:!item.done}));navigator.vibrate?.(12)}}>
+        <span className="checkbox" aria-hidden="true">{item.done?'✓':''}</span><span className="item-label"><span className="item-name">{item.name}</span>{item.qty && <span className="qty">{item.qty}</span>}{isNew && <span className="new-badge">Nové</span>}</span>
       </button>
       {index!==undefined && <button className="icon move" disabled={index===0} aria-label={`Posunout ${item.name} nahoru`} onClick={()=>action(moveItem(list.id,item,open[index-1]))}>↑</button>}
-      <button className="icon item-options" aria-label={`Upravit ${item.name}`} onClick={()=>setEdit(item)}>···</button>
+      <button className="icon item-options" aria-label={`Upravit ${item.name}`} onClick={()=>setEdit(item)}>⋮</button>
     </li>
   }
   function exportList() {
@@ -285,7 +285,7 @@ function ShoppingList({list,user,online,fail,notify}:ShoppingProps) {
   return <>
     <section className="list-heading">
       <div><div className="sync" data-status={!online ? "offline" : items.pending || items.cached ? "pending" : "ready"} aria-live="polite"><span/>{!online?'Offline':items.pending?'Synchronizuji…':items.cached?'Načítám změny…':'Synchronizováno'}</div><h1>{list.name}</h1><p>{open.length===0?'Vše odškrtnuto':`${open.length} ${open.length===1?'položka':open.length<5?'položky':'položek'} k nákupu`}</p></div>
-      <div className="heading-actions"><button className="secondary" onClick={()=>setPanel('share')}>Sdílet</button><button className="icon" aria-label="Možnosti seznamu" onClick={()=>{setListName(list.name);setPanel('options')}}>···</button></div>
+      <div className="heading-actions"><button className="secondary" onClick={()=>setPanel('share')}>Sdílet</button><button className="icon" aria-label="Možnosti seznamu" onClick={()=>{setListName(list.name);setPanel('options')}}>⋮</button></div>
     </section>
     <div className="entry">
       <form className="add" onSubmit={add}>

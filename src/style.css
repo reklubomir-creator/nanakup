@@ -46,7 +46,7 @@ h1{font-size:clamp(27px,5.9vw,40px);font-weight:820;line-height:1.05;letter-spac
 .add-button{background:var(--green);color:white;font-size:22px;padding:0}
 .suggestions{position:absolute;inset:100% 0 auto;z-index:2;background:var(--card);border:1px solid var(--line);box-shadow:0 10px 22px #17102723;border-radius:12px;overflow:hidden}
 .suggestions button{display:flex;justify-content:space-between;width:100%;border-bottom:1px solid var(--line);text-align:left}
-.suggestions span,.qty{color:var(--muted);font-size:13px}
+.suggestions span{color:var(--muted);font-size:13px}
 .category{margin-bottom:15px}
 .category h2{display:flex;align-items:center;gap:8px;font-size:15px;letter-spacing:-.02em;min-height:33px}
 .category h2 span{width:24px;height:24px;display:grid;place-items:center;background:var(--lavender);border-radius:7px}
@@ -56,8 +56,8 @@ ul{margin:0;padding:0;list-style:none}
 .item .icon{color:var(--muted)}
 .check-row{flex:1;min-width:0;display:flex;align-items:center;gap:11px;text-align:left;padding:8px 3px}
 .checkbox{width:22px;height:22px;border:1.5px solid #82768c;border-radius:7px;flex:none;display:grid;place-items:center}
-.item-name{flex:1;overflow-wrap:anywhere}
-.qty{text-align:right;overflow-wrap:anywhere;max-width:37%}
+.item-label{min-width:0;overflow-wrap:anywhere}
+.qty{margin-inline-start:8px;color:var(--muted);font-size:inherit;font-weight:700}
 .done{color:var(--muted)}
 .done .item-name{text-decoration:line-through}
 .done .checkbox{background:var(--lavender)}
