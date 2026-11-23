@@ -88,3 +88,11 @@ dialog small{display:block;color:var(--muted);margin-top:14px}
 .new-badge{display:inline-block;margin-inline-start:7px;padding:1px 6px;border-radius:5px;background:var(--accent);color:#29234c;font-size:11px;font-weight:750;letter-spacing:.01em;vertical-align:1px}
 .activity-status{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .activity-banner{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;padding-inline-start:12px;background:var(--lavender);border-radius:10px;font-size:14px;font-weight:650}
+.overview{margin-top:24px}
+.overview-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.overview-heading h1{font-size:clamp(25px,5.6vw,34px)}
+.overview-lists{border-block-start:1px solid var(--line);margin-bottom:15px}
+.overview-row{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;min-height:54px;border-radius:0;padding:7px 6px;text-align:left;border-bottom:1px solid var(--line)}
+.overview-row:hover,.overview-row:focus-visible{background:var(--card)}
+.overview-name{overflow-wrap:anywhere}
+.overview-count{display:grid;place-items:center;flex:none;min-width:35px;height:30px;padding:0 8px;border-radius:8px;background:var(--lavender);font-variant-numeric:tabular-nums}
