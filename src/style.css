@@ -101,3 +101,4 @@ dialog small{display:block;color:var(--muted);margin-top:14px}
 .overview-swipe .overview-row:hover,.overview-swipe .overview-row:focus-visible{background:var(--card)}
 .overview-swipe[data-revealed=true] .overview-row{transform:translateX(-90px)}
 .overview-delete{position:absolute;inset:0 0 0 auto;width:90px;border-radius:0;background:#b32547;color:white}
+.add.overview-add{grid-template-columns:minmax(0,1fr) 46px;margin-bottom:16px}

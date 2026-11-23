@@ -136,11 +136,11 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   const {rows,key} = useDocuments<List>(()=>listsQuery(user.uid),user.uid,fail)
   const lists = rows.filter(list=>!list.archived).sort((a,b)=>Number(b.id.startsWith('default-'))-Number(a.id.startsWith('default-')) || a.name.localeCompare(b.name,'cs'))
   const [selected,setSelected] = useState(selectedFromUrl)
-  const [menu,setMenu] = useState<'create'|'join'|null>(code?'join':null)
+  const [menu,setMenu] = useState<'join'|null>(code?'join':null)
   const [busy,setBusy] = useState(false)
   const [newList,setNewList] = useState('')
   const [revealedList,setRevealedList] = useState('')
-  const [deleteList,setDeleteList] = useState<List|null>(null)
+  const [creating,setCreating] = useState(false)
   const [name,setName] = useState(userName(user))
   const list = lists.find(entry=>entry.id===selected)
   useEffect(() => {
@@ -160,6 +160,17 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
     window.scrollTo(0,0)
   }
   useEffect(() => {if(online) void initDefault(user).catch(fail)},[user.uid,online])
+  async function addList(event:FormEvent) {
+    event.preventDefault()
+    const title = newList.trim()
+    if (!title || !online || creating) return
+    setCreating(true)
+    try {
+      openList(await createList(title,user))
+      setNewList('')
+    } catch(error) {fail(error)}
+    finally {setCreating(false)}
+  }
   async function join(event:FormEvent) {
     event.preventDefault()
     setBusy(true)
@@ -180,32 +191,22 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
       </nav>
       <ShoppingList key={list.id} list={list} user={user} online={online} fail={fail} notify={notify}/>
     </> : <section className="overview">
-      <div className="overview-heading">
-        <h1>Nákupní seznamy</h1>
-        <button className="primary" disabled={!online} onClick={()=>setMenu('create')}>Nový seznam</button>
-      </div>
+      <div className="overview-heading"><h1>Nákupní seznamy</h1></div>
+      <form className="add overview-add" onSubmit={addList}>
+        <input value={newList} onChange={event=>setNewList(event.target.value)} maxLength={120}
+          aria-label="Název nového seznamu" placeholder="Název nového seznamu" enterKeyHint="done" disabled={creating}/>
+        <button className="add-button" aria-label="Vytvořit seznam" disabled={!online || !newList.trim() || creating}>✓</button>
+      </form>
       {lists.length ? <ul className="overview-lists">
         {lists.map(entry=><OverviewRow key={entry.id} list={entry} open={()=>openList(entry.id)}
           revealed={revealedList===entry.id} reveal={value=>setRevealedList(value ? entry.id : '')}
-          remove={entry.owner===user.uid && entry.id!=='default-'+user.uid ? ()=>setDeleteList(entry) : undefined}/>)}
+          remove={entry.owner===user.uid && entry.id!=='default-'+user.uid ? ()=>{
+            void patchList(entry.id,{archived:true}).catch(fail)
+            setRevealedList('')
+          } : undefined}/>)}
       </ul> : <p className="empty">{key ? 'Zatím tu nejsou žádné seznamy.' : 'Načítám seznamy…'}</p>}
       <button className="secondary" disabled={!online} onClick={()=>setMenu('join')}>Zadat kód pozvánky</button>
     </section>}
-    {deleteList && <Dialog title={`Smazat seznam „${deleteList.name}“?`} close={()=>setDeleteList(null)}>
-      <div className="inline">
-        <button className="secondary" onClick={()=>setDeleteList(null)}>Zrušit</button>
-        <button className="danger" onClick={()=>{
-          void patchList(deleteList.id,{archived:true}).catch(fail)
-          setDeleteList(null)
-          setRevealedList('')
-        }}>Smazat seznam</button>
-      </div>
-    </Dialog>}
-    {menu==='create' && <Dialog title="Nový seznam" close={()=>setMenu(null)}>
-      <form className="inline" onSubmit={event=>{event.preventDefault();if(newList.trim()) void createList(newList.trim(),user).then(id=>{openList(id);setNewList('');setMenu(null)}).catch(fail)}}>
-        <input value={newList} onChange={event=>setNewList(event.target.value)} maxLength={120} aria-label="Název nového seznamu" placeholder="Název seznamu"/><button className="primary" disabled={!online || !newList.trim()}>Vytvořit</button>
-      </form>
-    </Dialog>}
     {menu==='join' && <Dialog title="Připojit se k seznamu" close={()=>setMenu(null)}>
       <form onSubmit={join}><label>Kód pozvánky<input value={code} onChange={event=>setCode(event.target.value.toUpperCase())} autoCapitalize="characters" autoComplete="off" maxLength={24} required/></label>
         <button className="primary" disabled={busy || !online}>Připojit se</button>
