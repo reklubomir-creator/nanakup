@@ -30,8 +30,12 @@ export async function registerPush(uid:string,device:PushDevice,askPermission:bo
   if (permission !== 'granted') throw new Error('Oznámení povol v nastavení prohlížeče nebo telefonu.')
   const { getMessaging,getToken,isSupported } = await import('firebase/messaging')
   if (!(await isSupported())) throw new Error('Tento prohlížeč nepodporuje oznámení NaNákupu.')
-  const registration = await navigator.serviceWorker.getRegistration()
-  if (!registration?.active) throw new Error('Načti NaNákup znovu a zkus oznámení zapnout.')
+  const registration = await navigator.serviceWorker.ready
+
+  if (!registration.active) {
+    throw new Error('Služba oznámení není aktivní.')
+  }
+
   const token = await getToken(getMessaging(app),{vapidKey,serviceWorkerRegistration:registration})
   if (!token) throw new Error('Zařízení se nepodařilo přihlásit k odběru oznámení.')
   await setDoc(deviceRef(device.id),{uid,token,muted:device.muted})
