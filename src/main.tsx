@@ -10,6 +10,9 @@ import { registerPush, unregisterPush, storedDevice, listenForPushBadges, change
 import { pushConfigured } from './push-config'
 import { version } from '../package.json'
 import './style.css'
+import { registerSW } from 'virtual:pwa-register'
+
+registerSW({ immediate: true })
 
 const NoticeContext = createContext('')
 const inviteFromUrl = () => new URLSearchParams(location.hash.slice(1)).get('pozvanka') || ''
