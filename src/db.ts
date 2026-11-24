@@ -33,19 +33,19 @@ export function createList(name: string, user: User) {
   const ref = doc(collection(db,'lists'))
   return setDoc(ref,listData(name,user)).then(() => ref.id)
 }
-function commitListChange(id: string, batch: ReturnType<typeof writeBatch>, affected?: string[]) {
+function commitListChange(id: string, batch: ReturnType<typeof writeBatch>, membership?: { affected: string[]; added?: string }) {
   const uid = auth.currentUser?.uid
   if (uid && pushConfigured) {
     const deviceId = storedDevice(uid)?.id ?? ''
     const actors = collection(listRef(id), 'pushActors')
-    const actor = affected ? doc(actors) : doc(actors, uid + ':' + deviceId)
-    batch.set(actor, {uid, deviceId, pendingAt: serverTimestamp(), ...(affected ? {affected} : {})})
+    const actor = membership ? doc(actors) : doc(actors, uid + ':' + deviceId)
+    batch.set(actor, {uid, deviceId, pendingAt: serverTimestamp(), ...membership})
   }
   return batch.commit()
 }
 
 export function archiveList(list: List) {
-  return commitListChange(list.id, writeBatch(db).update(listRef(list.id), {archived:true}), list.memberIds)
+  return commitListChange(list.id, writeBatch(db).update(listRef(list.id), {archived:true}), {affected:list.memberIds})
 }
 
 export function patchList(id: string, data: Partial<List>) {
@@ -112,7 +112,7 @@ export async function joinList(raw: string, user: User) {
   if (!invite.exists()) throw new Error('Pozvánka už není platná.')
   const id = invite.data().listId as string
   const batch = writeBatch(db).update(listRef(id),'memberIds',arrayUnion(user.uid),new FieldPath('names',user.uid),userName(user),'joinCode',code)
-  await commitListChange(id, batch, [user.uid])
+  await commitListChange(id, batch, {affected:[user.uid]})
   return id
 }
 export function removeMember(list: List, uid: string, revoke: boolean) {
@@ -121,11 +121,11 @@ export function removeMember(list: List, uid: string, revoke: boolean) {
     batch.delete(doc(db,'invites',list.invite))
     batch.update(listRef(list.id),{memberIds:arrayRemove(uid),invite:''})
   } else batch.update(listRef(list.id),{memberIds:arrayRemove(uid)})
-  return commitListChange(list.id, batch, [uid])
+  return commitListChange(list.id, batch, {affected:[uid]})
 }
 
 export function addSharedMember(listId: string, sourceId: string, uid: string, name: string) {
   const batch = writeBatch(db).update(listRef(listId),'memberIds',arrayUnion(uid),new FieldPath('names',uid),name,
     'memberGrant',{sourceId,uid})
-  return commitListChange(listId, batch, [uid])
+  return commitListChange(listId, batch, {affected:[uid], added:uid})
 }

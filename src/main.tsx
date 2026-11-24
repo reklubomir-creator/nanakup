@@ -215,7 +215,9 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
     let cancelled = false
     let unsubscribe: (() => void) | undefined
     void import('firebase/messaging').then(async ({getMessaging,isSupported,onMessage}) => {
-      if (await isSupported() && !cancelled) unsubscribe = onMessage(getMessaging(auth.app), () => {})
+      if (await isSupported() && !cancelled) unsubscribe = onMessage(getMessaging(auth.app), ({data, notification}) => {
+        if (data?.kind === 'joined' && notification?.title) notify(`Přidali tě do seznamu „${notification.title}“.`)
+      })
     }).catch(() => {})
     return () => {cancelled = true; unsubscribe?.()}
   }, [pushDevice])

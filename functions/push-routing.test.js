@@ -45,3 +45,19 @@ test('a user outside the list receives no list content', () => {
   const changes = [{uid:'one',deviceId:'phone'}]
   assert.equal(messageKind(personal, changes,'two','tablet'), null)
 })
+
+test('a direct addition goes only to the new member and takes priority over edits', () => {
+  const changes = [
+    {uid:'one',deviceId:'phone',affected:['two'],added:'two'},
+    {uid:'one',deviceId:'phone'}
+  ]
+  assert.equal(messageKind(shared,changes,'two','tablet'), 'joined')
+  assert.equal(messageKind(shared,changes,'one','tablet'), 'badge')
+  assert.equal(messageKind(personal,changes,'two','tablet'), 'badge')
+  assert.equal(messageKind({...shared,archived:true},changes,'two','tablet'), 'badge')
+})
+
+test('joining with an invite does not say another person added the member', () => {
+  const changes = [{uid:'two',deviceId:'tablet',affected:['two']}]
+  assert.equal(messageKind(shared,changes,'two','phone'), 'badge')
+})

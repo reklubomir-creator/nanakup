@@ -40,17 +40,22 @@ async function sendListUpdate(list, actors) {
     const badgeCount = await countUncheckedItems(uid)
     for (const {device,token,kind} of targets) {
       const url = new URL(appUrl)
-      if (kind === 'list') url.searchParams.set('seznam',list.id)
+      const showList = kind === 'list' || kind === 'joined'
+      if (showList) url.searchParams.set('seznam',list.id)
+      const title = showList && typeof listData.name === 'string' ? listData.name : 'NaNákup'
+      const body = {
+        joined:'Někdo tě přidal do nového nákupního seznamu.',
+        list:'Nákupní seznam byl upraven.',
+        badge:'Počet položek k nákupu byl aktualizován.'
+      }[kind]
       try {
         await getMessaging().send({
           token,
-          data:{badgeCount:String(badgeCount)},
-          notification: kind === 'list'
-            ? {title:typeof listData.name === 'string' ? listData.name : 'NaNákup',body:'Nákupní seznam byl upraven.'}
-            : {title:'NaNákup',body:'Počet položek k nákupu byl aktualizován.'},
+          data:{badgeCount:String(badgeCount),kind},
+          notification:{title,body},
           webpush:{
             headers:{TTL:'600'},
-            notification:{tag:kind === 'list' ? tag : 'nanakup-badge',icon:appUrl+'icon-192.png',renotify:false},
+            notification:{tag:kind === 'joined' ? 'joined-' + tag : showList ? tag : 'nanakup-badge',icon:appUrl+'icon-192.png',renotify:false},
             fcmOptions:{link:url.href}
           }
         })

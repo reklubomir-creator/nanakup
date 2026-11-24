@@ -9,6 +9,7 @@ export function affectedUsers(list, changes) {
 
 export function messageKind(list, changes, uid, deviceId) {
   const members = list && !list.archived ? list.memberIds ?? [] : []
+  if (members.includes(uid) && changes.some(change => change.added === uid)) return 'joined'
   if (members.includes(uid) && changes.some(change => !change.affected &&
       change.uid !== uid && members.includes(change.uid))) return 'list'
 

@@ -107,6 +107,13 @@ service cloud.firestore {
             && ((before.archived != after.archived && targets.toSet() == prior.union(current))
               || (before.archived == after.archived && targets.toSet() == affected));
         }
+        function validDirectAddition(data) {
+          let before = get(pathFor(id)).data;
+          let after = getAfter(pathFor(id)).data;
+          return owner(before) && !before.archived && !after.archived
+            && data.affected == [data.added] && data.added == after.get('memberGrant',{}).get('uid','')
+            && after.memberIds == before.memberIds.concat([data.added]);
+        }
         allow create, update: if active() && actor == me()
           && request.resource.data.keys().hasOnly(['pendingAt'])
           && request.resource.data.pendingAt == request.time;
@@ -114,8 +121,9 @@ service cloud.firestore {
           && actor == me() + ':' + request.resource.data.deviceId
           && request.resource.data.keys().hasOnly(['uid','deviceId','pendingAt']);
         allow create: if validActor(request.resource.data)
-          && request.resource.data.keys().hasOnly(['uid','deviceId','pendingAt','affected'])
-          && validMembership(request.resource.data.affected);
+          && request.resource.data.keys().hasOnly(['uid','deviceId','pendingAt','affected','added'])
+          && validMembership(request.resource.data.affected)
+          && (!('added' in request.resource.data) || validDirectAddition(request.resource.data));
       }
       match /history/{item} {
         allow read: if active();
