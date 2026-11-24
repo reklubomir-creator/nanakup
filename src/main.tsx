@@ -2,11 +2,11 @@ import { createContext, useContext, useEffect, useRef, useState, type FormEvent,
 import { createRoot } from 'react-dom/client'
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth'
 import { onSnapshot, query, where, type DocumentData, type Query } from 'firebase/firestore'
-import { auth, configured, login, listsQuery, itemsRef, historyRef, initDefault, patchList, patchItem, createList, saveItem, clearItems, removeItem, moveItem, rotateInvite, joinList, addSharedMember, removeMember, rememberName, userName, type List, type Item, type History } from './db'
+import { auth, configured, login, listsQuery, itemsRef, historyRef, initDefault, archiveList, patchList, patchItem, createList, saveItem, clearItems, removeItem, moveItem, rotateInvite, joinList, addSharedMember, removeMember, rememberName, userName, type List, type Item, type History } from './db'
 import { guessCategory, normalize } from './catalog'
 import { newItemsMessage, useNewItems } from './new-items'
 import { updateAppBadge } from './app-badge.js'
-import { registerPush, unregisterPush, storedDevice, listenForPushBadges, changePushPreference, type PushDevice } from './push-device'
+import { registerPush, unregisterPush, storedDevice, changePushPreference, type PushDevice } from './push-device'
 import { pushConfigured } from './push-config'
 import { version } from '../package.json'
 import './style.css'
@@ -64,7 +64,10 @@ function App() {
   const [settings,setSettings] = useState(false)
   const [code,setCode] = useState(inviteFromUrl)
   const fail = (error:unknown) => setNotice(message(error))
-  useEffect(() => onAuthStateChanged(auth,setUser,fail),[])
+  useEffect(() => onAuthStateChanged(auth, next => {
+    if (!next) void updateAppBadge(0)
+    setUser(next)
+  }, fail),[])
   useEffect(() => {
     const update = () => {setOnline(navigator.onLine); if (navigator.onLine) void navigator.serviceWorker?.getRegistration().then(registration=>registration?.update()).catch(()=>{})}
     window.addEventListener('online',update)
@@ -90,16 +93,10 @@ function Theme({theme,change}:{theme:string;change:(theme:string)=>void}) {
   return <label>Vzhled<select value={theme} onChange={event=>change(event.target.value)}><option value="system">Podle zařízení</option><option value="light">Světlý</option><option value="dark">Tmavý</option></select></label>
 }
 
-function OverviewRow({list,open,revealed,reveal,remove}:{list:List;open:()=>void;revealed:boolean;reveal:(value:boolean)=>void;remove?:()=>void}) {
+function OverviewRow({list,remaining,open,revealed,reveal,remove}:{list:List;remaining:number|undefined;open:()=>void;revealed:boolean;reveal:(value:boolean)=>void;remove?:()=>void}) {
   const start = useRef<{x:number;y:number;id:number} | null>(null)
   const swiped = useRef(false)
   const actionButton = useRef<HTMLButtonElement>(null)
-  const [remaining,setRemaining] = useState<number>()
-  useEffect(() => onSnapshot(query(itemsRef(list.id),where('done','==',false)), {includeMetadataChanges:true}, snapshot => {
-    // An empty cache cannot distinguish an empty list from one this device has never loaded.
-    if (!snapshot.metadata.fromCache || !snapshot.empty) setRemaining(snapshot.size)
-  }, () => setRemaining(undefined)),[list.id])
-
   return <li className="overview-swipe" data-revealed={revealed}>
     {remove && <button ref={actionButton} className="overview-delete" tabIndex={revealed ? 0 : -1} aria-hidden={!revealed} aria-label={`Smazat seznam ${list.name}`} onClick={remove}>Smazat</button>}
     <button className="overview-row" aria-keyshortcuts={remove ? 'ArrowLeft ArrowRight' : undefined}
@@ -139,29 +136,35 @@ function OverviewRow({list,open,revealed,reveal,remove}:{list:List;open:()=>void
 
 type WorkspaceProps = {user:User;online:boolean;code:string;setCode:(code:string)=>void;fail:(error:unknown)=>void;notify:(text:string)=>void;settings:boolean;setSettings:(open:boolean)=>void;theme:string;setTheme:(theme:string)=>void}
 function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,theme,setTheme}:WorkspaceProps) {
-  const {rows,key} = useDocuments<List>(()=>listsQuery(user.uid),user.uid,fail)
+  const {rows,key,cached:listsCached} = useDocuments<List>(()=>listsQuery(user.uid),user.uid,fail)
   // Count all unchecked items across active lists, independently of the current view.
   const activeIds = rows.filter(list => !list.archived).map(list => list.id).sort()
   const activeIdsKey = JSON.stringify(activeIds)
 
+  const [remainingByList,setRemainingByList] = useState<ReadonlyMap<string,number>>(() => new Map())
+
   useEffect(() => {
+    if (!key) return
     const ids = JSON.parse(activeIdsKey) as string[]
     const counts = new Map<string, number>()
     const loaded = new Set<string>()
 
     if (!ids.length) {
-      void updateAppBadge(0)
+      setRemainingByList(new Map())
+      if (!listsCached) void updateAppBadge(0)
       return
     }
 
     const subscriptions = ids.map(id =>
       onSnapshot(
         query(itemsRef(id), where('done', '==', false)),
+        {includeMetadataChanges:true},
         snapshot => {
           if (snapshot.metadata.fromCache && snapshot.empty && !loaded.has(id)) return
           counts.set(id, snapshot.size)
           loaded.add(id)
-          if (loaded.size === ids.length) {
+          setRemainingByList(new Map(counts))
+          if (!listsCached && loaded.size === ids.length) {
             void updateAppBadge([...counts.values()].reduce((sum, count) => sum + count, 0))
           }
         },
@@ -170,7 +173,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
     )
 
     return () => subscriptions.forEach(unsubscribe => unsubscribe())
-  }, [activeIdsKey])
+  }, [activeIdsKey,key,listsCached])
 
   const orderKey = 'nanakup:list-order:' + user.uid
   const [order,setOrder] = useState<string[]>(() => {
@@ -205,11 +208,17 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   const [pushDevice,setPushDevice] = useState<PushDevice|null>(()=>storedDevice(user.uid))
   const [pushBusy,setPushBusy] = useState(false)
 
+  // Attach the foreground FCM handler for messages routed to an open tab.
+  // The Firestore listeners above own the foreground count.
   useEffect(() => {
     if (!pushDevice) return
-    return listenForPushBadges()
+    let cancelled = false
+    let unsubscribe: (() => void) | undefined
+    void import('firebase/messaging').then(async ({getMessaging,isSupported,onMessage}) => {
+      if (await isSupported() && !cancelled) unsubscribe = onMessage(getMessaging(auth.app), () => {})
+    }).catch(() => {})
+    return () => {cancelled = true; unsubscribe?.()}
   }, [pushDevice])
-
 
   async function togglePush() {
     if (pushBusy) return
@@ -294,10 +303,10 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
             <button className="icon" aria-label={`Posunout seznam ${entry.name} nahoru`} disabled={index===0} onClick={()=>moveList(index,-1)}>↑</button>
             <button className="icon" aria-label={`Posunout seznam ${entry.name} dolů`} disabled={index===lists.length-1} onClick={()=>moveList(index,1)}>↓</button>
           </span>
-        </li> : <OverviewRow key={entry.id} list={entry} open={()=>openList(entry.id)}
+        </li> : <OverviewRow key={entry.id} list={entry} remaining={remainingByList.get(entry.id)} open={()=>openList(entry.id)}
           revealed={revealedList===entry.id} reveal={value=>setRevealedList(value ? entry.id : '')}
           remove={entry.owner===user.uid && entry.id!=='default-'+user.uid ? ()=>{
-            void patchList(entry.id,{archived:true}).catch(fail)
+            void archiveList(entry).catch(fail)
             setRevealedList('')
           } : undefined}/>)}
       </ul> : <p className="empty">{key ? 'Zatím tu nejsou žádné seznamy.' : 'Načítám seznamy…'}</p>}
@@ -331,7 +340,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
         </button>
         {!pushConfigured && <small>Oznámení zatím nejsou nakonfigurována.</small>}
       </section>
-      <button className="secondary" onClick={()=>{void signOut(auth).catch(fail);setSettings(false)}}>Odhlásit se</button>
+      <button className="secondary" onClick={()=>{void (pushDevice ? unregisterPush(user.uid,pushDevice).then(()=>setPushDevice(null)) : Promise.resolve()).then(()=>signOut(auth)).catch(fail);setSettings(false)}}>Odhlásit se</button>
       <small>NaNákup {version}</small>
     </Dialog>}
   </main>
@@ -501,7 +510,7 @@ function ShoppingList({list,sharedLists,user,online,fail,notify,pushDevice,setPu
           <button className="icon" disabled={!index} aria-label={`Posunout ${category.label} nahoru`} onClick={()=>{const next=list.categories.slice();[next[index-1],next[index]]=[next[index],next[index-1]];action(patchList(list.id,{categories:next}))}}>↑</button>
         </li>)}</ul>
         <form className="inline" onSubmit={event=>{event.preventDefault();if(!categoryName.trim())return;action(patchList(list.id,{categories:[...list.categories,{id:'custom-'+crypto.randomUUID(),label:categoryName.trim(),mark:'◇'}]}));setCategoryName('')}}><input value={categoryName} onChange={event=>setCategoryName(event.target.value)} maxLength={50} aria-label="Nová kategorie" placeholder="Nová kategorie"/><button className="secondary" disabled={list.categories.length>=50}>Přidat</button></form>
-        {list.id!=='default-'+user.uid&&<button className="danger" onClick={()=>setConfirmation({title:'Smazat tento seznam?',run:()=>patchList(list.id,{archived:true})})}>Smazat seznam</button>}
+        {list.id!=='default-'+user.uid&&<button className="danger" onClick={()=>setConfirmation({title:'Smazat tento seznam?',run:()=>archiveList(list)})}>Smazat seznam</button>}
       </>}
     </Dialog>}
     {confirmation && <Dialog title={confirmation.title} close={()=>setConfirmation(null)}><div className="inline"><button className="secondary" onClick={()=>setConfirmation(null)}>Zrušit</button><button className="danger" onClick={()=>{action(confirmation.run());setConfirmation(null)}}>Potvrdit</button></div></Dialog>}

@@ -90,10 +90,32 @@ service cloud.firestore {
         allow create: if active() && valid(request.resource.data) && request.resource.data.author == me();
         allow update: if active() && valid(request.resource.data) && request.resource.data.author == resource.data.author;
       }
-      match /pushActors/{uid} {
-        allow create, update: if active() && uid == me()
+      match /pushActors/{actor} {
+        function validActor(data) {
+          return signed() && data.uid == me() && data.pendingAt == request.time
+            && short(data.deviceId,36)
+            && (data.deviceId == '' || data.deviceId.matches('[0-9a-f-]{36}'));
+        }
+        function validMembership(targets) {
+          let before = get(pathFor(id)).data;
+          let after = getAfter(pathFor(id)).data;
+          let prior = before.memberIds.toSet();
+          let current = after.memberIds.toSet();
+          let affected = prior.difference(current).union(current.difference(prior));
+          return targets is list && targets.size() > 0
+            && (member(before) || member(after))
+            && ((before.archived != after.archived && targets.toSet() == prior.union(current))
+              || (before.archived == after.archived && targets.toSet() == affected));
+        }
+        allow create, update: if active() && actor == me()
           && request.resource.data.keys().hasOnly(['pendingAt'])
           && request.resource.data.pendingAt == request.time;
+        allow create, update: if active() && validActor(request.resource.data)
+          && actor == me() + ':' + request.resource.data.deviceId
+          && request.resource.data.keys().hasOnly(['uid','deviceId','pendingAt']);
+        allow create: if validActor(request.resource.data)
+          && request.resource.data.keys().hasOnly(['uid','deviceId','pendingAt','affected'])
+          && validMembership(request.resource.data.affected);
       }
       match /history/{item} {
         allow read: if active();

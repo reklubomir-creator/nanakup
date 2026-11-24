@@ -3,77 +3,74 @@ import { initializeApp } from 'firebase-admin/app'
 import { getFirestore, Timestamp } from 'firebase-admin/firestore'
 import { getMessaging } from 'firebase-admin/messaging'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
-import { error as logError } from 'firebase-functions/logger'
+import { error as logError, info } from 'firebase-functions/logger'
+import { affectedUsers, messageKind } from './push-routing.js'
 
 initializeApp()
 const db = getFirestore()
 const quietTime = 60_000
 const appUrl = 'https://reklubomir-creator.github.io/nanakup/'
 
-export function recipients(members, editors) {
-  return members.filter(uid => [...editors].some(editor => editor !== uid))
-}
-
 async function countUncheckedItems(uid) {
-  const lists = await db.collection('lists')
-    .where('memberIds', 'array-contains', uid)
-    .get()
-
-  let total = 0
-
-  for (const list of lists.docs) {
-    if (list.get('archived')) continue
-
-    const count = await list.ref.collection('items')
-      .where('done', '==', false)
-      .count()
-      .get()
-
-    total += count.data().count
-  }
-
-  return total
+  const lists = await db.collection('lists').where('memberIds', 'array-contains', uid).get()
+  const counts = await Promise.all(lists.docs.filter(list => !list.get('archived')).map(list =>
+    list.ref.collection('items').where('done', '==', false).count().get()
+  ))
+  return counts.reduce((total, count) => total + count.data().count, 0)
 }
 
 async function sendListUpdate(list, actors) {
   if (actors.empty || actors.docs.some(actor => actor.updateTime.toMillis() > Date.now() - quietTime)) return
-  const listSnapshot = await list.get()
-  const members = listSnapshot.get('memberIds')
-  if (listSnapshot.exists && !listSnapshot.get('archived') && Array.isArray(members)) {
-    const membersSet = new Set(members)
-    const editors = new Set(actors.docs.map(actor => actor.id).filter(uid => membersSet.has(uid)))
-    const targetUsers = recipients([...membersSet], editors)
-    const tag = createHash('sha256').update(list.id).digest('hex').slice(0,32)
-    const name = listSnapshot.get('name')
-    const url = new URL(appUrl)
-    url.searchParams.set('seznam',list.id)
+  const snapshot = await list.get()
+  const listData = snapshot.data()
+  const changes = actors.docs.map(actor => ({uid:actor.id, ...actor.data()}))
+  const tag = createHash('sha256').update(list.id).digest('hex').slice(0,32)
+  const counts = {accepted:0, stale:0, failed:0}
 
-    for (const uid of targetUsers) {
-      const badgeCount = await countUncheckedItems(uid)
-      const devices = await db.collection('pushDevices').where('uid','==',uid).get()
-      for (const device of devices.docs) {
-        const { token, muted } = device.data()
-        if (!token || muted?.includes(list.id)) continue
-        try {
-          await getMessaging().send({
-            token,
-            data:{listId:list.id,badgeCount:String(badgeCount)},
-            notification:{title:typeof name === 'string' ? name : 'NaNákup',body:'Nákupní seznam byl upraven.'},
-            webpush:{
-              headers:{TTL:'600'},
-              notification:{tag,icon:appUrl+'icon-192.png',renotify:false},
-              fcmOptions:{link:url.href}
-            }
-          })
-        } catch(error) {
-          if (error.code !== 'messaging/registration-token-not-registered' && error.code !== 'messaging/invalid-registration-token') throw error
-          await device.ref.delete({lastUpdateTime:device.updateTime}).catch(reason => {
-            if (reason.code !== 9 && reason.code !== 5) throw reason
-          })
+  for (const uid of affectedUsers(listData, changes)) {
+    const devices = await db.collection('pushDevices').where('uid','==',uid).get()
+    const targets = devices.docs.flatMap(device => {
+      const { token, muted } = device.data()
+      if (!token || muted?.includes(list.id)) return []
+      const kind = messageKind(listData, changes, uid, device.id)
+      return kind ? [{device,token,kind}] : []
+    })
+    if (!targets.length) continue
+
+    const badgeCount = await countUncheckedItems(uid)
+    for (const {device,token,kind} of targets) {
+      const url = new URL(appUrl)
+      if (kind === 'list') url.searchParams.set('seznam',list.id)
+      try {
+        await getMessaging().send({
+          token,
+          data:{badgeCount:String(badgeCount)},
+          notification: kind === 'list'
+            ? {title:typeof listData.name === 'string' ? listData.name : 'NaNákup',body:'Nákupní seznam byl upraven.'}
+            : {title:'NaNákup',body:'Počet položek k nákupu byl aktualizován.'},
+          webpush:{
+            headers:{TTL:'600'},
+            notification:{tag:kind === 'list' ? tag : 'nanakup-badge',icon:appUrl+'icon-192.png',renotify:false},
+            fcmOptions:{link:url.href}
+          }
+        })
+        counts.accepted++
+      } catch(error) {
+        if (error.code !== 'messaging/registration-token-not-registered' && error.code !== 'messaging/invalid-registration-token') {
+          counts.failed++
+          logError('FCM rejected notification', {code:error.code ?? 'unknown'})
+          continue
         }
+        counts.stale++
+        await device.ref.delete({lastUpdateTime:device.updateTime}).catch(reason => {
+          if (reason.code !== 9 && reason.code !== 5) throw reason
+        })
       }
     }
   }
+
+  info('NaNákup push batch', {changes:changes.length,...counts})
+  if (counts.failed) return
   await db.runTransaction(async transaction => {
     const latest = await transaction.getAll(...actors.docs.map(actor=>actor.ref))
     latest.forEach((doc,index)=>{
@@ -91,7 +88,7 @@ export const sendListUpdates = onSchedule({
     try {
       await sendListUpdate(list,await list.collection('pushActors').get())
     } catch(error) {
-      logError('Push delivery did not complete', {list:list.id,code:error.code ?? 'unknown'})
+      logError('Push delivery did not complete', {code:error.code ?? 'unknown'})
     }
   }
 })

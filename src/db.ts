@@ -3,6 +3,7 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, updateProfile, type User 
 import { collection, doc, getDocFromServer, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, setDoc, updateDoc, deleteDoc, query, where, writeBatch, increment, serverTimestamp, arrayUnion, arrayRemove, FieldPath, runTransaction } from 'firebase/firestore'
 import { firebaseConfig } from './firebase-config'
 import { pushConfigured } from './push-config'
+import { storedDevice } from './push-device-storage'
 import { categories, normalize, type Category } from './catalog'
 
 export const configured = firebaseConfig.apiKey !== 'unconfigured'
@@ -32,14 +33,19 @@ export function createList(name: string, user: User) {
   const ref = doc(collection(db,'lists'))
   return setDoc(ref,listData(name,user)).then(() => ref.id)
 }
-async function commitListChange(id: string, batch: ReturnType<typeof writeBatch>, _newItemId?: string) {
-  await batch.commit()
+function commitListChange(id: string, batch: ReturnType<typeof writeBatch>, affected?: string[]) {
   const uid = auth.currentUser?.uid
   if (uid && pushConfigured) {
-    void setDoc(doc(listRef(id), 'pushActors', uid), {
-      pendingAt: serverTimestamp()
-    }).catch(error => console.warn('Push notification scheduling failed', error))
+    const deviceId = storedDevice(uid)?.id ?? ''
+    const actors = collection(listRef(id), 'pushActors')
+    const actor = affected ? doc(actors) : doc(actors, uid + ':' + deviceId)
+    batch.set(actor, {uid, deviceId, pendingAt: serverTimestamp(), ...(affected ? {affected} : {})})
   }
+  return batch.commit()
+}
+
+export function archiveList(list: List) {
+  return commitListChange(list.id, writeBatch(db).update(listRef(list.id), {archived:true}), list.memberIds)
 }
 
 export function patchList(id: string, data: Partial<List>) {
@@ -66,13 +72,13 @@ export function saveItem(list: string, item: Omit<Item,'id'>, existing?: string,
   const historyId = encodeURIComponent(normalize(item.name))
   const history = {name:item.name,qty:item.qty,category:item.category}
   batch.set(doc(historyRef(list),historyId),existing ? history : {...history,count:increment(1)},{merge:true})
-  return commitListChange(list, batch, newItem?.id)
+  return commitListChange(list, batch)
 }
 export async function clearItems(list: string, items: Item[]) {
   for (let i=0;i<items.length;i+=400) {
     const batch = writeBatch(db)
     items.slice(i,i+400).forEach(item => batch.delete(itemRef(list,item.id)))
-    await batch.commit()
+    await commitListChange(list, batch)
   }
 }
 export function moveItem(list: string, first: Item, second: Item) {
@@ -105,7 +111,8 @@ export async function joinList(raw: string, user: User) {
   })
   if (!invite.exists()) throw new Error('Pozvánka už není platná.')
   const id = invite.data().listId as string
-  await updateDoc(listRef(id),'memberIds',arrayUnion(user.uid),new FieldPath('names',user.uid),userName(user),'joinCode',code)
+  const batch = writeBatch(db).update(listRef(id),'memberIds',arrayUnion(user.uid),new FieldPath('names',user.uid),userName(user),'joinCode',code)
+  await commitListChange(id, batch, [user.uid])
   return id
 }
 export function removeMember(list: List, uid: string, revoke: boolean) {
@@ -114,10 +121,11 @@ export function removeMember(list: List, uid: string, revoke: boolean) {
     batch.delete(doc(db,'invites',list.invite))
     batch.update(listRef(list.id),{memberIds:arrayRemove(uid),invite:''})
   } else batch.update(listRef(list.id),{memberIds:arrayRemove(uid)})
-  return batch.commit()
+  return commitListChange(list.id, batch, [uid])
 }
 
 export function addSharedMember(listId: string, sourceId: string, uid: string, name: string) {
-  return updateDoc(listRef(listId),'memberIds',arrayUnion(uid),new FieldPath('names',uid),name,
+  const batch = writeBatch(db).update(listRef(listId),'memberIds',arrayUnion(uid),new FieldPath('names',uid),name,
     'memberGrant',{sourceId,uid})
+  return commitListChange(listId, batch, [uid])
 }

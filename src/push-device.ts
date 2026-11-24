@@ -1,22 +1,11 @@
 import { doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore'
 import { app, db } from './db'
-import { updateAppBadge } from './app-badge.js'
 
 import { pushConfigured, vapidKey } from './push-config'
 
-export type PushDevice = { id:string; muted:string[] }
-const localKey = (uid:string) => 'nanakup-push:' + uid
-export function storedDevice(uid:string):PushDevice | null {
-  try {
-    const value:unknown = JSON.parse(localStorage.getItem(localKey(uid)) ?? 'null')
-    if (value && typeof value === 'object' && 'id' in value && typeof value.id === 'string' && 'muted' in value && Array.isArray(value.muted)) {
-      return {id:value.id,muted:value.muted.filter((id):id is string=>typeof id==='string')}
-    }
-  } catch {
-    return null
-  }
-  return null
-}
+import { localKey, type PushDevice } from './push-device-storage'
+export { storedDevice, type PushDevice } from './push-device-storage'
+
 function store(uid:string,device:PushDevice) {
   localStorage.setItem(localKey(uid),JSON.stringify(device))
 }
@@ -61,16 +50,4 @@ export async function changePushPreference(uid:string,device:PushDevice,listId:s
   await updateDoc(deviceRef(device.id),{muted:next.muted})
   store(uid,next)
   return next
-}
-
-export function listenForPushBadges() {
-  let active = true
-  let unsubscribe: (() => void) | undefined
-  void import('firebase/messaging').then(async ({getMessaging,isSupported,onMessage}) => {
-    if (!(await isSupported()) || !active) return
-    unsubscribe = onMessage(getMessaging(app), ({data}) => {
-      if (data?.badgeCount !== undefined) void updateAppBadge(Number(data.badgeCount))
-    })
-  }).catch(()=>{})
-  return () => {active = false; unsubscribe?.()}
 }

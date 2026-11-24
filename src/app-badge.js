@@ -1,6 +1,9 @@
-export function updateAppBadge(count) {
-  if (typeof navigator.setAppBadge !== 'function') return Promise.resolve()
-  return Promise.resolve(
-    count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge()
-  ).catch(() => {})
+export async function updateAppBadge(count) {
+  if (!Number.isSafeInteger(count) || count < 0) return
+  try {
+    if (count === 0) await navigator.clearAppBadge?.()
+    else await navigator.setAppBadge?.(count)
+  } catch {
+    // Badging is optional and can be blocked by the browser or system.
+  }
 }
