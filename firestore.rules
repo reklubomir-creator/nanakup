@@ -58,16 +58,22 @@ service cloud.firestore {
               (after.invite == '' || getAfter(inviteFor(after.invite)).data.listId == id)
           ));
       }
+      function memberEditsInvite(after,before) {
+        return member(before) && !before.archived && changes().hasOnly(['invite'])
+          && short(after.invite,12)
+          && (before.invite == '' || !existsAfter(inviteFor(before.invite)))
+          && (after.invite == '' || getAfter(inviteFor(after.invite)).data.listId == id);
+      }
       function sharedContact(sourceId,uid,displayName) {
         let source = get(pathFor(sourceId)).data;
         return !source.archived && member(source) && uid in source.memberIds
           && displayName == source.names[uid];
       }
-      function ownerAddsSharedContact(after,before) {
+      function memberAddsSharedContact(after,before) {
         let grant = after.get('memberGrant',{});
         let uid = grant.get('uid','');
         let sourceId = grant.get('sourceId','');
-        return owner(before) && !before.archived
+        return member(before) && !before.archived
           && changes().hasOnly(['memberIds','names','memberGrant'])
           && grant.keys().hasOnly(['uid','sourceId'])
           && name(uid) && name(sourceId) && sourceId != id && !(uid in before.memberIds)
@@ -76,7 +82,8 @@ service cloud.firestore {
           && name(after.names[uid]) && sharedContact(sourceId,uid,after.names[uid]);
       }
       allow update: if ownerEdit(request.resource.data,resource.data) || joins(request.resource.data,resource.data)
-        || ownerAddsSharedContact(request.resource.data,resource.data) || leaves(request.resource.data,resource.data) || renamesSelf(request.resource.data,resource.data);
+        || memberEditsInvite(request.resource.data,resource.data)
+        || memberAddsSharedContact(request.resource.data,resource.data) || leaves(request.resource.data,resource.data) || renamesSelf(request.resource.data,resource.data);
       function active() {
         return signed() && !get(pathFor(id)).data.archived && member(get(pathFor(id)).data);
       }
@@ -110,7 +117,7 @@ service cloud.firestore {
         function validDirectAddition(data) {
           let before = get(pathFor(id)).data;
           let after = getAfter(pathFor(id)).data;
-          return owner(before) && !before.archived && !after.archived
+          return member(before) && !before.archived && !after.archived
             && data.affected == [data.added] && data.added == after.get('memberGrant',{}).get('uid','')
             && after.memberIds == before.memberIds.concat([data.added]);
         }
@@ -146,6 +153,10 @@ service cloud.firestore {
       allow update: if signed() && resource.data.uid == me() && validDevice(request.resource.data);
       allow delete: if signed() && resource.data.uid == me();
     }
+    function mayShare(id) {
+      let list = get(pathFor(id)).data;
+      return member(list) && !list.archived;
+    }
     match /invites/{code} {
       allow get: if signed() && (resource == null || inviteActive(code,resource.data));
       allow create: if signed() && (
@@ -153,9 +164,9 @@ service cloud.firestore {
           (shortInvite(code) && request.resource.data.keys().hasOnly(['listId','createdAt'])
             && request.resource.data.createdAt == request.time)
         )
-        && owner(get(pathFor(request.resource.data.listId)).data)
+        && mayShare(request.resource.data.listId)
         && getAfter(pathFor(request.resource.data.listId)).data.invite == code;
-      allow delete: if signed() && owner(get(pathFor(resource.data.listId)).data)
+      allow delete: if mayShare(resource.data.listId)
         && getAfter(pathFor(resource.data.listId)).data.invite != code;
     }
   }

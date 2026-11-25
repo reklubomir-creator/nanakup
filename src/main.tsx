@@ -381,12 +381,10 @@ function ShoppingList({list,sharedLists,user,online,fail,notify,pushDevice,setPu
   }
 
   const candidates = new Map<string,{sourceId:string;name:string}>()
-  if (list.owner===user.uid) {
-    for (const source of sharedLists) {
-      for (const uid of source.memberIds) {
-        if (!list.memberIds.includes(uid) && !candidates.has(uid) && source.names[uid]) {
-          candidates.set(uid,{sourceId:source.id,name:source.names[uid]})
-        }
+  for (const source of sharedLists) {
+    for (const uid of source.memberIds) {
+      if (!list.memberIds.includes(uid) && !candidates.has(uid) && source.names[uid]) {
+        candidates.set(uid,{sourceId:source.id,name:source.names[uid]})
       }
     }
   }
@@ -480,14 +478,14 @@ function ShoppingList({list,sharedLists,user,online,fail,notify,pushDevice,setPu
     </Dialog>}
     {duplicate && <Dialog title="Položka už je v seznamu" close={()=>setDuplicate(null)}><p>{duplicate.match.name} {duplicate.match.qty}</p><div className="inline"><button className="primary" onClick={()=>finishAdd(duplicate.item,duplicate.match)}>Sloučit množství</button><button className="secondary" onClick={()=>finishAdd(duplicate.item)}>Přidat zvlášť</button></div></Dialog>}
     {panel==='share' && <Dialog title="Sdílení seznamu" close={()=>setPanel(null)}>
-      {owner && <div className="share-block">{list.invite ? <>
+      <div className="share-block">{list.invite ? <>
         <div className="share-code">{list.invite.match(/.{1,4}/g)?.join('–')}</div>
         {list.invite.length === 4 && <p>Kód a odkaz platí 10 minut od vytvoření.</p>}
         <button className="quiet" disabled={!online} onClick={()=>action(rotateInvite(list))}>Vygenerovat nový kód</button>
         <button className="primary" onClick={()=>{const url=new URL(location.pathname,location.origin);url.hash=new URLSearchParams({pozvanka:list.invite}).toString();void navigator.clipboard.writeText(url.href).then(()=>notify('Odkaz zkopírován.')).catch(fail)}}>Kopírovat odkaz</button>
         <button className="quiet" disabled={!online} onClick={()=>action(rotateInvite(list,true))}>Zneplatnit pozvánku</button>
-      </> : <button className="primary" disabled={!online} onClick={()=>action(rotateInvite(list))}>Vytvořit pozvánku</button>}</div>}
-      {owner && candidates.size>0 && <div className="share-block">
+      </> : <button className="primary" disabled={!online} onClick={()=>action(rotateInvite(list))}>Vytvořit pozvánku</button>}</div>
+      {candidates.size>0 && <div className="share-block">
         <h3>Lidé z dalších seznamů</h3>
         <ul className="members">{[...candidates].map(([uid,person])=><li key={uid}>
           <span>{person.name}</span>
