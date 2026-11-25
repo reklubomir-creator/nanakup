@@ -93,7 +93,9 @@ dialog small{display:block;color:var(--muted);margin-top:14px}
 .overview-heading h1{font-size:clamp(25px,5.6vw,34px)}
 .overview-lists{border:1px solid color-mix(in srgb,var(--accent) 26%,var(--line));border-radius:12px;overflow:hidden;margin:0}
 .overview-row{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;min-height:54px;border-radius:0;padding:7px 10px;text-align:left;border-bottom:1px solid var(--line)}
-.overview-name{overflow-wrap:anywhere}
+.list-title{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px 8px;min-width:0}
+.list-title-text{overflow-wrap:anywhere;min-width:0}
+.shared-label{padding:2px 6px;border:1px solid currentColor;border-radius:5px;font-size:.72rem;font-weight:600;line-height:1.2;letter-spacing:normal;white-space:nowrap}
 .overview-count{display:grid;place-items:center;flex:none;min-width:35px;height:30px;padding:0 8px;border-radius:8px;background:var(--lavender);font-variant-numeric:tabular-nums}
 .overview-swipe{position:relative;overflow:hidden}
 .overview-swipe .overview-row{position:relative;touch-action:pan-y pinch-zoom;background:color-mix(in srgb,var(--accent) 12%,var(--paper));transition:transform .18s ease}

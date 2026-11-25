@@ -93,6 +93,13 @@ function Theme({theme,change}:{theme:string;change:(theme:string)=>void}) {
   return <label>Vzhled<select value={theme} onChange={event=>change(event.target.value)}><option value="system">Podle zařízení</option><option value="light">Světlý</option><option value="dark">Tmavý</option></select></label>
 }
 
+function ListTitle({list}:{list:List}) {
+  return <span className="list-title">
+    <span className="list-title-text">{list.name}</span>
+    {list.memberIds.length > 1 && <span className="shared-label">Sdílený</span>}
+  </span>
+}
+
 function OverviewRow({list,remaining,open,revealed,reveal,remove}:{list:List;remaining:number|undefined;open:()=>void;revealed:boolean;reveal:(value:boolean)=>void;remove?:()=>void}) {
   const start = useRef<{x:number;y:number;id:number} | null>(null)
   const swiped = useRef(false)
@@ -128,7 +135,7 @@ function OverviewRow({list,remaining,open,revealed,reveal,remove}:{list:List;rem
         if (revealed) reveal(false)
         else open()
       }}>
-      <span className="overview-name">{list.name}</span>
+      <ListTitle list={list}/>
       <span className="overview-count" aria-label={remaining===undefined?'Počet položek není dostupný':`${remaining} neodškrtnutých položek`}>{remaining ?? '–'}</span>
     </button>
   </li>
@@ -300,7 +307,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
       </div>
       {lists.length ? <ul className="overview-lists">
         {lists.map((entry,index)=>ordering ? <li className="overview-order-row" key={entry.id}>
-          <span className="overview-name">{entry.name}</span>
+          <ListTitle list={entry}/>
           <span className="overview-order-buttons">
             <button className="icon" aria-label={`Posunout seznam ${entry.name} nahoru`} disabled={index===0} onClick={()=>moveList(index,-1)}>↑</button>
             <button className="icon" aria-label={`Posunout seznam ${entry.name} dolů`} disabled={index===lists.length-1} onClick={()=>moveList(index,1)}>↓</button>
@@ -441,7 +448,7 @@ function ShoppingList({list,sharedLists,user,online,fail,notify,pushDevice,setPu
   }
   return <>
     <section className="list-heading">
-      <div><div className="sync" data-status={!online ? "offline" : items.pending || items.cached ? "pending" : "ready"} aria-live="polite"><span/>{!online?'Offline':items.pending?'Synchronizuji…':items.cached?'Načítám změny…':'Synchronizováno'}</div><h1>{list.name}</h1><p>{open.length===0?'Vše odškrtnuto':`${open.length} ${open.length===1?'položka':open.length<5?'položky':'položek'} k nákupu`}</p></div>
+      <div><div className="sync" data-status={!online ? "offline" : items.pending || items.cached ? "pending" : "ready"} aria-live="polite"><span/>{!online?'Offline':items.pending?'Synchronizuji…':items.cached?'Načítám změny…':'Synchronizováno'}</div><h1><ListTitle list={list}/></h1><p>{open.length===0?'Vše odškrtnuto':`${open.length} ${open.length===1?'položka':open.length<5?'položky':'položek'} k nákupu`}</p></div>
       <div className="heading-actions"><button className="secondary" onClick={()=>setPanel('share')}>Sdílet</button><button className="icon" aria-label="Možnosti seznamu" onClick={()=>{setListName(list.name);setPanel('options')}}>⋮</button></div>
     </section>
     <div className="entry">
