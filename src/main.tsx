@@ -148,6 +148,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   const activeIds = rows.filter(list => !list.archived).map(list => list.id).sort()
   const activeIdsKey = JSON.stringify(activeIds)
 
+  const [pushDevice,setPushDevice] = useState<PushDevice|null>(()=>storedDevice(user.uid))
   const [remainingByList,setRemainingByList] = useState<ReadonlyMap<string,number>>(() => new Map())
 
   useEffect(() => {
@@ -158,7 +159,6 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
 
     if (!ids.length) {
       setRemainingByList(new Map())
-      if (!listsCached) void updateAppBadge(0)
       return
     }
 
@@ -171,9 +171,6 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
           counts.set(id, snapshot.size)
           loaded.add(id)
           setRemainingByList(new Map(counts))
-          if (!listsCached && loaded.size === ids.length) {
-            void updateAppBadge([...counts.values()].reduce((sum, count) => sum + count, 0))
-          }
         },
         error => console.warn('Badge count unavailable', id, error)
       )
@@ -181,6 +178,14 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
 
     return () => subscriptions.forEach(unsubscribe => unsubscribe())
   }, [activeIdsKey,key,listsCached])
+
+  useEffect(() => {
+    if (!key || listsCached) return
+    const ids = (JSON.parse(activeIdsKey) as string[]).filter(id => !pushDevice?.badgeExcluded.includes(id))
+    if (ids.every(id => remainingByList.has(id))) {
+      void updateAppBadge(ids.reduce((sum,id) => sum + (remainingByList.get(id) ?? 0), 0))
+    }
+  }, [activeIdsKey,key,listsCached,pushDevice,remainingByList])
 
   const orderKey = 'nanakup:list-order:' + user.uid
   const [order,setOrder] = useState<string[]>(() => {
@@ -212,7 +217,6 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
   const [creating,setCreating] = useState(false)
   const [name,setName] = useState(userName(user))
 
-  const [pushDevice,setPushDevice] = useState<PushDevice|null>(()=>storedDevice(user.uid))
   const [pushBusy,setPushBusy] = useState(false)
 
   // Attach the foreground FCM handler for messages routed to an open tab.
@@ -238,7 +242,7 @@ function Workspace({user,online,code,setCode,fail,notify,settings,setSettings,th
         setPushDevice(null)
         notify('Oznámení vypnuta.')
       } else {
-        const device:PushDevice = {id:crypto.randomUUID(),muted:[]}
+        const device:PushDevice = {id:crypto.randomUUID(),muted:[],badgeExcluded:[]}
         await registerPush(user.uid,device,true)
         setPushDevice(device)
         notify('Oznámení zapnuta.')
@@ -365,14 +369,14 @@ function ShoppingList({list,sharedLists,user,online,fail,notify,pushDevice,setPu
 
   const [pushSaving,setPushSaving] = useState(false)
 
-  async function toggleListPush() {
+  async function toggleListPush(field:'muted'|'badgeExcluded') {
     if (!pushDevice || pushSaving) return
     setPushSaving(true)
     try {
-      const muted = !pushDevice.muted.includes(list.id)
-      const updated = await changePushPreference(user.uid,pushDevice,list.id,muted)
+      const muted = !pushDevice[field].includes(list.id)
+      const updated = await changePushPreference(user.uid,pushDevice,list.id,field,muted)
       setPushDevice(updated)
-      notify(muted ? 'Oznámení seznamu ztlumena.' : 'Oznámení seznamu zapnuta.')
+      notify('Nastavení seznamu uloženo.')
     } catch(error) {
       fail(error)
     } finally {
@@ -500,8 +504,15 @@ function ShoppingList({list,sharedLists,user,online,fail,notify,pushDevice,setPu
         <input type="checkbox"
           checked={pushDevice.muted.includes(list.id)}
           disabled={!online || pushSaving}
-          onChange={()=>void toggleListPush()}/>
+          onChange={()=>void toggleListPush('muted')}/>
         Ztlumit oznámení tohoto seznamu
+      </label>}
+      {pushDevice && <label className="switch">
+        <input type="checkbox"
+          checked={!pushDevice.badgeExcluded.includes(list.id)}
+          disabled={!online || pushSaving}
+          onChange={()=>void toggleListPush('badgeExcluded')}/>
+        Počítat položky tohoto seznamu do odznaku
       </label>}
       {!owner && <button className="danger" disabled={!online} onClick={()=>setConfirmation({title:'Opustit sdílený seznam?',run:()=>removeMember(list,user.uid,false)})}>Opustit seznam</button>}
     </Dialog>}

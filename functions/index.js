@@ -11,12 +11,9 @@ const db = getFirestore()
 const quietTime = 60_000
 const appUrl = 'https://reklubomir-creator.github.io/nanakup/'
 
-async function countUncheckedItems(uid) {
+async function activeLists(uid) {
   const lists = await db.collection('lists').where('memberIds', 'array-contains', uid).get()
-  const counts = await Promise.all(lists.docs.filter(list => !list.get('archived')).map(list =>
-    list.ref.collection('items').where('done', '==', false).count().get()
-  ))
-  return counts.reduce((total, count) => total + count.data().count, 0)
+  return lists.docs.filter(list => !list.get('archived'))
 }
 
 async function sendListUpdate(list, actors) {
@@ -30,15 +27,23 @@ async function sendListUpdate(list, actors) {
   for (const uid of affectedUsers(listData, changes)) {
     const devices = await db.collection('pushDevices').where('uid','==',uid).get()
     const targets = devices.docs.flatMap(device => {
-      const { token, muted } = device.data()
+      const { token, muted, badgeExcluded } = device.data()
       if (!token || muted?.includes(list.id)) return []
       const kind = messageKind(listData, changes, uid, device.id)
-      return kind ? [{device,token,kind}] : []
+      return kind ? [{device,token,kind,badgeExcluded}] : []
     })
     if (!targets.length) continue
 
-    const badgeCount = await countUncheckedItems(uid)
-    for (const {device,token,kind} of targets) {
+    const lists = await activeLists(uid)
+    const countByList = new Map()
+    for (const {device,token,kind,badgeExcluded} of targets) {
+      const counts = await Promise.all(lists.filter(list => !badgeExcluded?.includes(list.id)).map(list => {
+        if (!countByList.has(list.id)) {
+          countByList.set(list.id, list.ref.collection('items').where('done', '==', false).count().get())
+        }
+        return countByList.get(list.id)
+      }))
+      const badgeCount = counts.reduce((total,count) => total + count.data().count, 0)
       const url = new URL(appUrl)
       const showList = kind === 'list' || kind === 'joined'
       if (showList) url.searchParams.set('seznam',list.id)

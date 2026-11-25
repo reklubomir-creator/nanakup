@@ -34,7 +34,7 @@ export async function registerPush(uid:string,device:PushDevice,askPermission:bo
 
   const token = await getToken(getMessaging(app),{vapidKey,serviceWorkerRegistration:registration})
   if (!token) throw new Error('Zařízení se nepodařilo přihlásit k odběru oznámení.')
-  await setDoc(deviceRef(device.id),{uid,token,muted:device.muted})
+  await setDoc(deviceRef(device.id),{uid,token,muted:device.muted,badgeExcluded:device.badgeExcluded})
   store(uid,device)
 }
 
@@ -45,9 +45,10 @@ export async function unregisterPush(uid:string,device:PushDevice) {
   if (await isSupported()) await deleteToken(getMessaging(app)).catch(()=>{})
 }
 
-export async function changePushPreference(uid:string,device:PushDevice,listId:string,muted:boolean) {
-  const next = {id:device.id,muted:muted?[...new Set([...device.muted,listId])]:device.muted.filter(id=>id!==listId)}
-  await updateDoc(deviceRef(device.id),{muted:next.muted})
+export async function changePushPreference(uid:string,device:PushDevice,listId:string,field:'muted'|'badgeExcluded',excluded:boolean) {
+  const values = excluded ? [...new Set([...device[field],listId])] : device[field].filter(id=>id!==listId)
+  const next = {...device,[field]:values}
+  await updateDoc(deviceRef(device.id),{[field]:values})
   store(uid,next)
   return next
 }

@@ -143,10 +143,11 @@ service cloud.firestore {
     }
     match /pushDevices/{id} {
       function validDevice(data) {
-        return data.keys().hasOnly(['uid','token','muted'])
+        return data.keys().hasOnly(['uid','token','muted','badgeExcluded'])
           && data.uid == me() && name(data.uid)
           && short(data.token,4096) && data.token.size() > 0
-          && data.muted is list && data.muted.size() <= 100;
+          && data.muted is list && data.muted.size() <= 100
+          && data.get('badgeExcluded',[]) is list && data.get('badgeExcluded',[]).size() <= 100;
       }
       allow get: if signed() && resource.data.uid == me();
       allow create: if signed() && validDevice(request.resource.data);
